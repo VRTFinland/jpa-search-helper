@@ -32,14 +32,18 @@ Filter is changed to JSON expression format:
         ["not", ["isNull", ["field" ,"dateString"]]],
         ["not", ["eq", ["field","bigDecimal"],  ["bigDecimal", "1.35"]]],
         ["eq", ["field","bigDecimal"],  ["bigDecimal", "1.23"]],
-        ["eq", ["field","nestedBean.string"], "Nested! daa dumdidum"],
-        ["not", ["eq", ["lower", ["field","nestedBean.string"]], "blaa!"]],
-        ["startsWith", ["field","nestedBean.string"], "Nested!"],
-        ["startsWith", ["lower" ,["field","nestedBean.string"]], "nested!"],
-        ["contains", ["field","nestedBean.string"], "Nested!"],
-        ["contains", ["lower",["field","nestedBean.string"]], "nested!"],
-        ["endsWith", ["field","nestedBean.string"], "dum"],
-        ["endsWith", ["lower",["field","nestedBean.string"]], "dum"]        
+        ["eq", ["field","testEntity2.string"], "Nested! daa dumdidum"],
+        ["not", ["eq", ["lower", ["field","testEntity2.string"]], "blaa!"]],
+        ["startsWith", ["field","testEntity2.string"], "Nested!"],
+        ["startsWith", ["lower" ,["field","testEntity2.string"]], "nested!"],
+        ["contains", ["field","testEntity2.string"], "Nested!"],
+        ["contains", ["lower",["field","testEntity2.string"]], "nested!"],
+        ["endsWith", ["field","testEntity2.string"], "dum"],
+        ["endsWith", ["lower",["field","testEntity2.string"]], "dum"],
+        ["endsWith", ["lower",["field","testEntity2s.string"]], "dum"],
+        ["in", ["field", ">testEntity2s.string"], "nested1"],
+        ["in", ["field", ">testEntity2s>testEntity3s.string"], "nested3"],
+        ["in", ["field", ">testEntity2>testEntity3s.string"], "nested3"]
       ]
    ],
    "options": {
@@ -50,6 +54,11 @@ Filter is changed to JSON expression format:
 }
 ```
 
+### OneToMany relations
+
+OneToMany relations: prefix your OneToMany attribute with `>` character, then we will use 
+join perform query (as seen in the example above). You can then use `in` operator in combination 
+with that. `@NestedSearchable` annotation must be used in backend entity.
 
 ### Extendability
 
@@ -57,8 +66,8 @@ You can extend library like this:
 
 ```java
 JPAFuncWithObjects<String> func = (root, query, cb, values, searchableFields) -> {
-    var nestedBean = root.join("nestedBean", JoinType.LEFT);
-    return cb.concat(nestedBean.get("string"), cb.literal((String)values[0]));
+    var testEntity2 = root.join("testEntity2", JoinType.LEFT);
+    return cb.concat(testEntity2.get("string"), cb.literal((String)values[0]));
 };
 
 Operator.addOperator(new Operator("ownOper", func));

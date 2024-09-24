@@ -73,17 +73,6 @@ public class JPASearchFunctions {
         return cb.literal(Enum.valueOf(cls, valueName));
     };
 
-    public static <T> Expression<T> getPath(Root<?> root, String k) {
-        if (k.contains(".")) {
-            Path<T> path = null;
-            for (String f : k.split("\\.")) {
-                path = path == null ? root.get(f) : path.get(f);
-            }
-            return path;
-        } else {
-            return root.get(k);
-        }
-    }
     public static Predicate[] toPredicates(Expression<Boolean>[] values) {
         Predicate[] predicates = new Predicate[values.length];
         for(int i = 0; i < values.length; i++) {

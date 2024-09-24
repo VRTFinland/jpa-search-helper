@@ -17,9 +17,7 @@ import org.springframework.test.context.TestPropertySource;
 import javax.persistence.criteria.JoinType;
 import java.math.BigDecimal;
 import java.time.*;
-import java.util.Calendar;
-import java.util.Date;
-import java.util.List;
+import java.util.*;
 
 import static org.assertj.core.api.AssertionsForInterfaceTypes.assertThat;
 
@@ -36,11 +34,13 @@ public class JpaSearchTests {
     ObjectMapper mapper = new ObjectMapper();
     @Autowired private TestEntityRepository testEntityRepository;
     @Autowired private TestEntity2Repository testEntity2Repository;
+    @Autowired private TestEntity3Repository testEntity3Repository;
 
     private void setup() {
         var ent2 = new TestEntity2(
             0L,
-            "Nested! daa dumdidum"
+            "Nested! daa dumdidum",
+                new ArrayList<>()
         );
 
         ent2 = testEntity2Repository.save(ent2);
@@ -70,20 +70,33 @@ public class JpaSearchTests {
             false,
             true,
             ent2,
+            new ArrayList<>(),
             TestEnum.VALUE1,
             Period.parse("P6M")
         );
         testEntityRepository.save(ent);
     }
     private void setup2() {
+        var ent3a = new TestEntity3(
+                0L,
+                "nested3"
+        );
+        var ent3b = new TestEntity3(
+                0L,
+                "nested4"
+        );
+        ent3a = testEntity3Repository.save(ent3a);
+        ent3b = testEntity3Repository.save(ent3b);
         var ent2a = new TestEntity2(
             0L,
-            "nested1"
+            "nested1",
+                new ArrayList<>()
         );
         ent2a = testEntity2Repository.save(ent2a);
         var ent2b = new TestEntity2(
             0L,
-            "nested2"
+            "nested2",
+                Arrays.asList(ent3a, ent3b)
         );
         ent2b = testEntity2Repository.save(ent2b);
 
@@ -113,6 +126,7 @@ public class JpaSearchTests {
             false,
             true,
             ent2a,
+            new ArrayList<>(),
             TestEnum.VALUE1,
             Period.parse("P12M")
         );
@@ -143,6 +157,7 @@ public class JpaSearchTests {
             false,
             true,
             ent2b,
+            Arrays.asList(ent2a, ent2b),
             TestEnum.VALUE2,
             Period.parse("P6M")
         );
@@ -175,14 +190,14 @@ public class JpaSearchTests {
         ["not", ["isNull", ["field" ,"dateString"]]],
         ["not", ["eq", ["field","bigDecimal"],  ["bigDecimal", "1.35"]]],
         ["eq", ["field","bigDecimal"],  ["bigDecimal", "1.23"]],
-        ["eq", ["field","nestedBean.string"], "Nested! daa dumdidum"],
-        ["not", ["eq", ["lower", ["field","nestedBean.string"]], "blaa!"]],
-        ["startsWith", ["field","nestedBean.string"], "Nested!"],
-        ["startsWith", ["lower" ,["field","nestedBean.string"]], "nested!"],
-        ["contains", ["field","nestedBean.string"], "Nested!"],
-        ["contains", ["lower",["field","nestedBean.string"]], "nested!"],
-        ["endsWith", ["field","nestedBean.string"], "dum"],
-        ["endsWith", ["lower",["field","nestedBean.string"]], "dum"]
+        ["eq", ["field","testEntity2.string"], "Nested! daa dumdidum"],
+        ["not", ["eq", ["lower", ["field","testEntity2.string"]], "blaa!"]],
+        ["startsWith", ["field","testEntity2.string"], "Nested!"],
+        ["startsWith", ["lower" ,["field","testEntity2.string"]], "nested!"],
+        ["contains", ["field","testEntity2.string"], "Nested!"],
+        ["contains", ["lower",["field","testEntity2.string"]], "nested!"],
+        ["endsWith", ["field","testEntity2.string"], "dum"],
+        ["endsWith", ["lower",["field","testEntity2.string"]], "dum"]
       ]
       ]            
    
@@ -251,6 +266,49 @@ public class JpaSearchTests {
 
         assertThat(result).hasSize(1);
     }
+
+    @SneakyThrows
+    @Test
+    public void testOneToMany() {
+        setup2();
+        var filterString = """
+          {"filter": ["in", ["field", ">testEntity2s.string"], "nested1"]}
+          """;
+
+        JsonNode filters = mapper.readTree(filterString);
+        List<TestEntity> result = testEntityRepository.findAll(filters, TestEntity.class);
+
+        assertThat(result).hasSize(1);
+    }
+
+    @SneakyThrows
+    @Test
+    public void testOneToMany2() {
+        setup2();
+        var filterString = """
+          {"filter": ["in", ["field", ">testEntity2s>testEntity3s.string"], "nested3"]}
+          """;
+
+        JsonNode filters = mapper.readTree(filterString);
+        List<TestEntity> result = testEntityRepository.findAll(filters, TestEntity.class);
+
+        assertThat(result).hasSize(1);
+    }
+
+    @SneakyThrows
+    @Test
+    public void testOneToMany3() {
+        setup2();
+        var filterString = """
+          {"filter": ["in", ["field", ">testEntity2>testEntity3s.string"], "nested3"]}
+          """;
+
+        JsonNode filters = mapper.readTree(filterString);
+        List<TestEntity> result = testEntityRepository.findAll(filters, TestEntity.class);
+
+        assertThat(result).hasSize(1);
+    }
+
     @SneakyThrows
     @Test
     public void testSort() {
@@ -368,7 +426,7 @@ public class JpaSearchTests {
         var filterString = """
           {"filter": ["gte", ["field", "primitiveInteger"], 6],
           "options": {
-            "sortKey": ["nestedBean.string"],
+            "sortKey": ["testEntity2.string"],
             "pageSize": 1,
             "pageOffset": 1
           }
@@ -389,7 +447,7 @@ public class JpaSearchTests {
         var filterString = """
           {"filter": ["gte", ["field", "primitiveInteger"], 6],
           "options": {
-            "sortKey": ["-nestedBean.string"],
+            "sortKey": ["-testEntity2.string"],
             "pageSize": 1,
             "pageOffset": 1
           }
@@ -410,7 +468,7 @@ public class JpaSearchTests {
         var filterString = """
           {"filter": ["gte", ["field", "primitiveInteger"], 6],
           "options": {
-            "sortKey": ["primitiveInteger", "-nestedBean.string"],
+            "sortKey": ["primitiveInteger", "-testEntity2.string"],
             "pageSize": 1,
             "pageOffset": 1
           }
@@ -430,8 +488,8 @@ public class JpaSearchTests {
         setup2();
 
         JPAFuncWithObjects<Boolean> func = (root, query, cb, values, searchableFields) -> {
-            var nestedBean = root.join("nestedBean", JoinType.LEFT);
-            return cb.equal(nestedBean.get("string"), values[0]);
+            var testEntity2 = root.join("testEntity2", JoinType.LEFT);
+            return cb.equal(testEntity2.get("string"), values[0]);
         };
 
         Operator.addOperator(new Operator("ownFunc", func));
@@ -451,8 +509,8 @@ public class JpaSearchTests {
         setup2();
 
         JPAFuncWithObjects<String> func = (root, query, cb, values, searchableFields) -> {
-            var nestedBean = root.join("nestedBean", JoinType.LEFT);
-            return cb.concat(nestedBean.get("string"), cb.literal((String)values[0]));
+            var testEntity2 = root.join("testEntity2", JoinType.LEFT);
+            return cb.concat(testEntity2.get("string"), cb.literal((String)values[0]));
         };
 
         Operator.addOperator(new Operator("ownFunc2", func));
