@@ -12,6 +12,7 @@ import javax.persistence.*;
 import java.math.BigDecimal;
 import java.time.*;
 import java.util.Date;
+import java.util.List;
 
 // Entity class
 @Entity
@@ -103,7 +104,12 @@ public class TestEntity {
     @NestedSearchable
     @ManyToOne
     @JoinColumn
-    private TestEntity2 nestedBean;
+    private TestEntity2 testEntity2;
+
+    @NestedSearchable
+    @OneToMany
+    @JoinColumn
+    private List<TestEntity2> testEntity2s;
 
     @Searchable
     private TestEnum testEnum;
