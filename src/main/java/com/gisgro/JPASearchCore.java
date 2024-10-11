@@ -17,9 +17,8 @@ import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 
 import java.util.*;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
-
-import static com.gisgro.JPASearchFunctions.getPath;
 
 public class JPASearchCore {
     public static <R, T> Specification<R> specification(JsonNode filterPayload,
@@ -71,6 +70,32 @@ public class JPASearchCore {
         };
     }
 
+    private static <T> Expression<T> getPath(Root<T> root, String k) {
+        var pattern = Pattern.compile("([>.]?)([^.>]+)");
+        var matcher = pattern.matcher(k);
+        Expression<T> expr = root;
+        while(matcher.find()) {
+            var prefix = matcher.group(1);
+            var name = matcher.group(2);
+            if (".".equals(prefix) || "".equals(prefix)) {
+                if (expr instanceof Path<T> p) {
+                    expr = p.get(name);
+                } else {
+                    throw new RuntimeException("Invalid path expression");
+                }
+            } else if (">".equals(prefix)) {
+                if (expr instanceof Root<T> r) {
+                    expr = r.join(name);
+                } else if(expr instanceof Join<?, T> j) {
+                    expr = j.join(name);
+                } else {
+                    throw new RuntimeException("Invalid path expression");
+                }
+            }
+        }
+        return expr;
+    }
+
     private static <T> Object processValue(
         Operator op,
         JsonNode node,
@@ -94,6 +119,7 @@ public class JPASearchCore {
                     searchableFields
                 );
                 var path = getPath(root, text);
+
                 if (descriptor.searchable.trim() && descriptor.searchType == SearchType.STRING) {
                     return cb.trim(path.as(String.class));
                 } else if (descriptor.entityType.isEnum()) {

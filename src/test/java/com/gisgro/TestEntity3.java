@@ -13,9 +13,9 @@ import java.util.List;
 @Getter
 @Setter
 @AllArgsConstructor
-public class TestEntity2 {
+public class TestEntity3 {
 
-    public TestEntity2() {}
+    public TestEntity3() {}
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -23,10 +23,4 @@ public class TestEntity2 {
 
     @Searchable
     private String string;
-
-    @NestedSearchable
-    @OneToMany
-    @JoinColumn
-    private List<TestEntity3> testEntity3s;
-
 }
