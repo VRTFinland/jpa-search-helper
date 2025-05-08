@@ -80,25 +80,32 @@ public class JPASearchFunctions {
             Root<X> root,
             JPASearchCore.Descriptor descriptor
     ) {
-        var rc = root.getJavaType();
+        var rootClass = root.getJavaType();
         var it = descriptor.getFieldPath().iterator();
-        var f = it.next();
+        var field = it.next();
         Join<Z, X> path = null;
 
         while (true) {
-            var fc = (Class<X>) f.getDeclaringClass();
-            var treat = !rc.equals(fc) && !fc.isAssignableFrom(rc);
+            /* for each level of the field path: if the class that
+               declares the field at that level is not assignable
+               from the root class (that is, it's not the same or
+               its superclass), treat the path at that level as that
+               declaring class to get access to its fields */
+
+            //noinspection unchecked
+            var fieldClass = (Class<X>) field.getDeclaringClass();
+            var treat = !fieldClass.isAssignableFrom(rootClass);
 
             var p = (path == null
-                    ? (treat ? cb.treat(root, fc) : root)
-                    : (treat ? cb.treat(path, fc) : path));
+                    ? (treat ? cb.treat(root, fieldClass) : root)
+                    : (treat ? cb.treat(path, fieldClass) : path));
 
             if (!it.hasNext()) {
-                return p.get(f.getName());
+                return p.get(field.getName());
             }
 
-            path = p.join(f.getName(), JoinType.LEFT);
-            f = it.next();
+            path = p.join(field.getName(), JoinType.LEFT);
+            field = it.next();
         }
     }
 
