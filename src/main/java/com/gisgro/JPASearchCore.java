@@ -1,67 +1,59 @@
 package com.gisgro;
 
-import com.gisgro.annotations.Searchable;
-import com.gisgro.annotations.Tag;
-import com.gisgro.exceptions.InvalidFieldException;
-import com.gisgro.model.*;
-import com.gisgro.exceptions.JPASearchException;
-import com.gisgro.utils.ReflectionUtils;
-import javax.persistence.criteria.*;
-
 import com.fasterxml.jackson.databind.JsonNode;
+import com.gisgro.annotations.Searchable;
+import com.gisgro.exceptions.InvalidFieldException;
+import com.gisgro.exceptions.JPASearchException;
+import com.gisgro.model.Operator;
+import com.gisgro.model.SearchType;
+import com.gisgro.utils.ReflectionUtils;
 import lombok.AllArgsConstructor;
 import lombok.Data;
-import org.apache.commons.lang3.tuple.Pair;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 
+import javax.persistence.criteria.*;
+import java.lang.reflect.Field;
 import java.util.*;
-import java.util.stream.Stream;
 
 import static com.gisgro.JPASearchFunctions.getPath;
 
 public class JPASearchCore {
-    public static <R, T> Specification<R> specification(JsonNode filterPayload,
-                                                        Class<T> entityClass,
-                                                        boolean throwsIfNotExistsOrNotSearchable) {
-        return specification(filterPayload, entityClass, null, throwsIfNotExistsOrNotSearchable, null);
+    public static <R, T> Specification<R> specification(
+            JsonNode filterPayload,
+            Class<T> entityClass,
+            boolean throwsIfNotExistsOrNotSearchable
+    ) {
+        return specification(
+                filterPayload,
+                entityClass,
+                throwsIfNotExistsOrNotSearchable,
+                Collections.emptySet()
+        );
     }
 
-    public static <R, T> Specification<R> specification(JsonNode filterPayload,
-                                                        Class<T> entityClass,
-                                                        Map<String, JoinType> fetchMap,
-                                                        boolean throwsIfNotExistsOrNotSearchable) {
-        return specification(filterPayload, entityClass, fetchMap, throwsIfNotExistsOrNotSearchable, null);
-    }
-
-    public static <R, T> Specification<R> specification(JsonNode filterPayload,
-                                                        Class<T> entityClass,
-                                                        boolean throwsIfNotExistsOrNotSearchable,
-                                                        Map<String, String> entityFieldMap) {
-        return specification(filterPayload, entityClass, null, throwsIfNotExistsOrNotSearchable, entityFieldMap);
-    }
-
-    public static <R, T> Specification<R> specification(JsonNode filterPayload,
-                                                        Class<T> entityClass,
-                                                        Map<String, JoinType> fetchMap,
-                                                        boolean throwsIfNotExistsOrNotSearchable,
-                                                        Map<String, String> entityFieldMap) {
+    public static <R, T> Specification<R> specification(
+            JsonNode filterPayload,
+            Class<T> entityClass,
+            boolean throwsIfNotExistsOrNotSearchable,
+            Set<Class<?>> searchableSubclasses
+    ) {
+        HashSet<Class<?>> entityClasses = new HashSet<>(searchableSubclasses);
+        entityClasses.add(entityClass);
 
         var filterExpression = filterPayload.get("filter");
 
         return (root, query, criteriaBuilder) -> {
-            fetchManagement(fetchMap, root);
-            var searchableFields = ReflectionUtils.getAllSearchableFields(entityClass);
+            var searchableFields = ReflectionUtils.getAllSearchableFields(entityClasses);
             var expr = processExpression(
-                filterExpression,
-                criteriaBuilder,
-                root,
-                query,
-                entityClass,
-                throwsIfNotExistsOrNotSearchable,
-                entityFieldMap,
-                searchableFields
+                    filterExpression,
+                    criteriaBuilder,
+                    root,
+                    query,
+                    entityClasses,
+                    throwsIfNotExistsOrNotSearchable,
+                    searchableFields
             );
             if (expr instanceof Predicate) {
                 return (Predicate) expr;
@@ -72,35 +64,25 @@ public class JPASearchCore {
     }
 
     private static <T> Object processValue(
-        Operator op,
-        JsonNode node,
-        CriteriaBuilder cb,
-        Root<?> root,
-        CriteriaQuery<?> query,
-        Class<T> entityClass,
-        boolean throwsIfNotExistsOrNotSearchable,
-        Map<String, String> entityFieldMap,
-        Map<String, Pair<Searchable, Class<?>>> searchableFields
+            Operator op,
+            JsonNode node,
+            CriteriaBuilder cb,
+            Root<?> root,
+            CriteriaQuery<?> query,
+            Set<Class<?>> entityClasses,
+            boolean throwsIfNotExistsOrNotSearchable,
+            Map<String, List<Field>> searchableFields
     ) {
         if (node.isTextual()) {
             var text = node.asText();
             if (Objects.equals(op.getName(), "field")) {
-                var descriptor = loadDescriptor(
-                    text,
-                    throwsIfNotExistsOrNotSearchable,
-                    false,
-                    false,
-                    entityFieldMap,
-                    searchableFields
+                return processField(
+                        cb,
+                        root,
+                        throwsIfNotExistsOrNotSearchable,
+                        searchableFields,
+                        text
                 );
-                var path = getPath(root, text);
-                if (descriptor.searchable.trim() && descriptor.searchType == SearchType.STRING) {
-                    return cb.trim(path.as(String.class));
-                } else if (descriptor.entityType.isEnum()) {
-                    return path.as(descriptor.entityType);
-                } else {
-                    return path;
-                }
             } else if (!op.isEvaluateStrings()) {
                 return text;
             } else {
@@ -115,23 +97,51 @@ public class JPASearchCore {
         } else if (node.isBoolean()) {
             return cb.literal(node.asBoolean());
         } else if (node.isArray()) {
-            return processExpression(node, cb, root, query, entityClass, throwsIfNotExistsOrNotSearchable, entityFieldMap, searchableFields);
-        } else if (node.isNull()) {
-            return cb.nullLiteral(entityClass);
+            return processExpression(node, cb, root, query, entityClasses, throwsIfNotExistsOrNotSearchable, searchableFields);
         } else {
             throw new JPASearchException("unexpected: " + node);
         }
     }
 
+    private static <T, U extends T> Expression<?> processField(
+            CriteriaBuilder cb,
+            Root<T> root,
+            boolean throwsIfNotExistsOrNotSearchable,
+            Map<String, List<Field>> searchableFields,
+            String text
+    ) {
+        var descriptor = loadDescriptor(
+                text,
+                throwsIfNotExistsOrNotSearchable,
+                false,
+                false,
+                searchableFields
+        );
+        if (descriptor == null) {
+            return null;
+        }
+
+        var path = getPath(cb, root, descriptor);
+        var field = descriptor.fieldPath.get(descriptor.fieldPath.size() - 1);
+        var searchable = field.getAnnotation(Searchable.class);
+
+        if (searchable.trim() && descriptor.searchType == SearchType.STRING) {
+            return cb.trim(path.as(String.class));
+        } else if (field.getType().isEnum()) {
+            return path.as(field.getType());
+        }
+
+        return path;
+    }
+
     private static Expression<?> processExpression(
-        JsonNode node,
-        CriteriaBuilder cb,
-        Root<?> root,
-        CriteriaQuery<?> query,
-        Class<?> entityClass,
-        boolean throwsIfNotExistsOrNotSearchable,
-        Map<String, String> entityFieldMap,
-        Map<String, Pair<Searchable, Class<?>>> searchableFields
+            JsonNode node,
+            CriteriaBuilder cb,
+            Root<?> root,
+            CriteriaQuery<?> query,
+            Set<Class<?>> entityClasses,
+            boolean throwsIfNotExistsOrNotSearchable,
+            Map<String, List<Field>> searchableFields
     ) {
         if (!node.isArray() || node.isEmpty() || !node.get(0).isTextual()) {
             throw new JPASearchException("Invalid expression");
@@ -143,17 +153,16 @@ public class JPASearchCore {
         for (var i = 1; i < node.size(); i++) {
             var child = node.get(i);
             arguments.add(
-                processValue(
-                    op,
-                    child,
-                    cb,
-                    root,
-                    query,
-                    entityClass,
-                    throwsIfNotExistsOrNotSearchable,
-                    entityFieldMap,
-                    searchableFields
-                )
+                    processValue(
+                            op,
+                            child,
+                            cb,
+                            root,
+                            query,
+                            entityClasses,
+                            throwsIfNotExistsOrNotSearchable,
+                            searchableFields
+                    )
             );
         }
         if (op.isEvaluateStrings()) {
@@ -163,87 +172,46 @@ public class JPASearchCore {
         }
     }
 
-    private static void fetchManagement(Map<String, JoinType> fetchMap, Root<?> root) {
-
-        if (fetchMap != null) {
-            List<String> doneFetches = new ArrayList<>();
-
-            fetchMap.forEach((k, v) -> {
-                if (k.contains(".")) {
-                    Iterator<String> it = Arrays.stream(k.split("\\.")).iterator();
-                    Fetch<?, ?> fetch;
-                    String f = it.next();
-                    StringBuilder tempPath = new StringBuilder(f);
-
-                    if (!doneFetches.contains(f)) {
-                        fetch = root.fetch(f, v);
-                        doneFetches.add(f);
-
-                    } else {
-                        fetch = root.getFetches().stream().filter(rf -> rf.getAttribute().getName().equals(f)).findAny().orElseThrow();
-                    }
-
-                    while (it.hasNext()) {
-                        String f1 = it.next();
-                        tempPath.append(".").append(f1);
-
-                        if (!doneFetches.contains(tempPath.toString())) {
-                            fetch = fetch.fetch(f1, v);
-                            doneFetches.add(tempPath.toString());
-
-                        } else {
-                            fetch = fetch.getFetches().stream().filter(rf -> rf.getAttribute().getName().equals(f1)).findAny().orElseThrow();
-                        }
-                    }
-
-                } else if (!doneFetches.contains(k)) {
-                    root.fetch(k, v);
-                    doneFetches.add(k);
-                }
-            });
-        }
-    }
-
     public static Sort loadSort(
-        JsonNode filterPayload,
-        Class<?> entityClass,
-        boolean throwsIfNotSortable,
-        boolean throwsIfNotExistsOrNotSearchable,
-        Map<String, String> entityFieldMap
+            JsonNode filterPayload,
+            Set<Class<?>> entityClasses,
+            boolean throwsIfNotSortable,
+            boolean throwsIfNotExistsOrNotSearchable
     ) {
         ArrayList<Sort.Order> orderSpecs = new ArrayList<>();
         var options = filterPayload.get("options");
-        var searchableFields = ReflectionUtils.getAllSearchableFields(entityClass);
+        var searchableFields = ReflectionUtils.getAllSearchableFields(entityClasses);
         if (options != null) {
             var sortKeysNode = options.get("sortKey");
             if (sortKeysNode != null) {
                 var keyList = new ArrayList<String>();
                 if (sortKeysNode.isTextual()) {
                     keyList.add(sortKeysNode.asText());
-                } else if(sortKeysNode.isArray()) {
-                    for (var itm: sortKeysNode) {
+                } else if (sortKeysNode.isArray()) {
+                    for (var itm : sortKeysNode) {
                         keyList.add(itm.asText());
                     }
                 }
-                for(var sortKeyStr : keyList) {
+                for (var sortKeyStr : keyList) {
                     var descending = false;
                     if (sortKeyStr.startsWith("-")) {
                         sortKeyStr = sortKeyStr.substring(1);
                         descending = true;
                     }
+
+                    // noinspection unused: this is used for checking for sortability
                     var descriptor = loadDescriptor(
-                        sortKeyStr,
-                        throwsIfNotExistsOrNotSearchable,
-                        true,
-                        throwsIfNotSortable,
-                        entityFieldMap,
-                        searchableFields
+                            sortKeyStr,
+                            throwsIfNotExistsOrNotSearchable,
+                            true,
+                            throwsIfNotSortable,
+                            searchableFields
                     );
 
                     if (descending) {
-                        orderSpecs.add(Sort.Order.desc(descriptor.entityKey));
+                        orderSpecs.add(Sort.Order.desc(sortKeyStr));
                     } else {
-                        orderSpecs.add(Sort.Order.asc(descriptor.entityKey));
+                        orderSpecs.add(Sort.Order.asc(sortKeyStr));
                     }
                 }
             }
@@ -252,12 +220,30 @@ public class JPASearchCore {
     }
 
     public static PageRequest loadSortAndPagination(
-        JsonNode filterPayload,
-        Class<?> entityClass,
-        boolean throwsIfNotSortable,
-        boolean throwsIfNotExistsOrSearchable,
-        Map<String, String> entityFieldMap
+            JsonNode filterPayload,
+            Class<?> entityClass,
+            boolean throwsIfNotSortable,
+            boolean throwsIfNotExistsOrSearchable
     ) {
+        return loadSortAndPagination(
+                filterPayload,
+                entityClass,
+                throwsIfNotSortable,
+                throwsIfNotExistsOrSearchable,
+                Collections.emptySet()
+        );
+    }
+
+    public static PageRequest loadSortAndPagination(
+            JsonNode filterPayload,
+            Class<?> entityClass,
+            boolean throwsIfNotSortable,
+            boolean throwsIfNotExistsOrSearchable,
+            Set<Class<?>> searchableSubclasses
+    ) {
+        HashSet<Class<?>> entityClasses = new HashSet<>(searchableSubclasses);
+        entityClasses.add(entityClass);
+
         Integer pageSize = null;
         Integer pageOffset = null;
         Sort sort = null;
@@ -266,11 +252,10 @@ public class JPASearchCore {
 
         if (options != null) {
             sort = loadSort(
-                filterPayload,
-                entityClass,
-                throwsIfNotSortable,
-                throwsIfNotExistsOrSearchable,
-                entityFieldMap
+                    filterPayload,
+                    entityClasses,
+                    throwsIfNotSortable,
+                    throwsIfNotExistsOrSearchable
             );
 
             var pageOffsetNode = options.get("pageOffset");
@@ -298,20 +283,14 @@ public class JPASearchCore {
         return result;
     }
 
-    public static DescriptorBean loadDescriptor(String key,
-                                                 boolean throwsIfNotExistsOrNotSortable,
-                                                 boolean checkSortable,
-                                                 boolean throwsIfNotSortable,
-                                                 Map<String, String> entityFieldMap,
-                                                 Map<String, Pair<Searchable, Class<?>>> searchableFields
+    public static Descriptor loadDescriptor(
+            String key,
+            boolean throwsIfNotExistsOrNotSortable,
+            boolean checkSortable,
+            boolean throwsIfNotSortable,
+            Map<String, List<Field>> searchableFields
     ) {
-        Map<String, Pair<Pair<Searchable, Class<?>>, Tag>> tagMap = new HashMap<>();
-        searchableFields.entrySet().stream().filter(e -> e.getValue().getKey().tags() != null && e.getValue().getKey().tags().length > 0)
-                .forEach(e -> Stream.of(e.getValue().getKey().tags()).forEach(t -> {
-                    tagMap.put(t.fieldKey(), Pair.of(e.getValue(), t));
-                }));
-
-        if (!searchableFields.containsKey(key) && !tagMap.containsKey(key)) {
+        if (!searchableFields.containsKey(key)) {
 
             if (throwsIfNotExistsOrNotSortable) {
                 throw new InvalidFieldException("Field [" + key + "] does not exists or not sortable", key);
@@ -320,8 +299,13 @@ public class JPASearchCore {
             return null;
         }
 
-        Searchable searchable = searchableFields.containsKey(key) ? searchableFields.get(key).getKey() : tagMap.get(key).getKey().getKey();
-        Class<?> type = searchableFields.containsKey(key) ? searchableFields.get(key).getValue() : tagMap.get(key).getKey().getValue();
+        var path = searchableFields.get(key);
+        var field = path.get(path.size() - 1);
+        var searchable = field.getAnnotation(Searchable.class);
+
+        if (searchable == null) {
+            return null;
+        }
 
         if (checkSortable && !searchable.sortable()) {
             if (throwsIfNotSortable) {
@@ -331,22 +315,17 @@ public class JPASearchCore {
             return null;
         }
 
-        String entityField = entityFieldMap != null && entityFieldMap.containsKey(key) ? entityFieldMap.get(key) :
-                (tagMap.containsKey(key) ?
-                        (tagMap.get(key).getRight().entityFieldKey() != null && !tagMap.get(key).getRight().entityFieldKey().isBlank() ? tagMap.get(key).getRight().entityFieldKey() : key)
-                        : (searchable.entityFieldKey() != null && !searchable.entityFieldKey().isBlank() ? searchable.entityFieldKey() : key));
+        var searchType = SearchType.UNTYPED.equals(searchable.targetType())
+                ? SearchType.load(field.getType(), SearchType.STRING)
+                : searchable.targetType();
 
-        return new DescriptorBean(key, searchable,
-                SearchType.UNTYPED.equals(searchable.targetType()) ? SearchType.load(type, SearchType.STRING) : searchable.targetType(), entityField, type);
+        return new Descriptor(searchType, path);
     }
 
     @Data
     @AllArgsConstructor
-    public static class DescriptorBean {
-        private String path;
-        private Searchable searchable;
+    public static class Descriptor {
         private SearchType searchType;
-        private String entityKey;
-        private Class<?> entityType;
+        private List<Field> fieldPath;
     }
 }

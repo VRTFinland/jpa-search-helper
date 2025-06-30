@@ -2,7 +2,6 @@ package com.gisgro;
 
 import com.gisgro.annotations.NestedSearchable;
 import com.gisgro.annotations.Searchable;
-import com.gisgro.annotations.Tag;
 import com.gisgro.model.SearchType;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
@@ -20,7 +19,8 @@ import java.util.Date;
 @AllArgsConstructor
 public class TestEntity {
 
-    public TestEntity() {}
+    public TestEntity() {
+    }
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -49,10 +49,10 @@ public class TestEntity {
     @Searchable(targetType = SearchType.DATE, datePattern = "yyyyMMdd")
     private Date date2;
 
-    @Searchable(entityFieldKey = "entity.long-one")
+    @Searchable
     private long primitiveLong;
 
-    @Searchable(entityFieldKey = "entity.long-two")
+    @Searchable
     private Long wrapperLong;
 
     @Searchable(decimalFormat = "#.#")
@@ -85,13 +85,7 @@ public class TestEntity {
     @Searchable(datePattern = "HHmmssXXX")
     private OffsetTime offsetTime;
 
-    @Searchable(tags = {
-            @Tag(fieldKey = "f1"),
-            @Tag(fieldKey = "f2"),
-            @Tag(fieldKey = "t.f2"),
-            @Tag(fieldKey = "t.f3", entityFieldKey = "ttt"),
-            @Tag(fieldKey = "tf3", entityFieldKey = "tttee")
-    })
+    @Searchable
     private String fieldName;
 
     @Searchable
@@ -103,7 +97,7 @@ public class TestEntity {
     @NestedSearchable
     @ManyToOne
     @JoinColumn
-    private TestEntity2 nestedBean;
+    private TestEntity2 nested;
 
     @Searchable
     private TestEnum testEnum;

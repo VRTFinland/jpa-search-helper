@@ -13,22 +13,22 @@ import javax.persistence.ManyToOne;
 @Getter
 @Setter
 @NoArgsConstructor
-public class TestEntity3 extends ParentEntity {
-    public TestEntity3(
+public class TestEntity4 extends ParentEntity {
+    public TestEntity4(
             Long id,
             String parentValue,
-            String payload,
-            TestEntity3 previous
+            String totallyNotPayload,
+            TestEntity4 previous
     ) {
         super(id, parentValue);
-        this.payload = payload;
+        this.totallyNotPayload = totallyNotPayload;
         this.previous = previous;
     }
 
     @Searchable
-    private String payload;
+    private String totallyNotPayload;
 
     @ManyToOne
     @NestedSearchable
-    public TestEntity3 previous;
+    public TestEntity4 previous;
 }
