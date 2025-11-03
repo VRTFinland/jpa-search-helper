@@ -4,6 +4,7 @@ import com.gisgro.exceptions.JPASearchException;
 import com.gisgro.utils.JPAFuncWithExpressions;
 import com.gisgro.utils.JPAFuncWithObjects;
 
+import javax.persistence.MappedSuperclass;
 import javax.persistence.criteria.*;
 import java.math.BigDecimal;
 import java.sql.Date;
@@ -90,11 +91,17 @@ public class JPASearchFunctions {
                declares the field at that level is not assignable
                from the root class (that is, it's not the same or
                its superclass), treat the path at that level as that
-               declaring class to get access to its fields */
+               declaring class to get access to its fields
+
+               Exception: @MappedSuperclass fields should not be treated,
+               as they are not bindable in JPA metamodel. Fields from
+               mapped superclasses are inherited into concrete entity
+               metamodels and can be accessed directly. */
 
             //noinspection unchecked
             var fieldClass = (Class<X>) field.getDeclaringClass();
-            var treat = !fieldClass.isAssignableFrom(rootClass);
+            var isMappedSuperclass = fieldClass.isAnnotationPresent(MappedSuperclass.class);
+            var treat = !isMappedSuperclass && !fieldClass.isAssignableFrom(rootClass);
 
             var p = (path == null
                     ? (treat ? cb.treat(root, fieldClass) : root)

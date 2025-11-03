@@ -44,6 +44,10 @@ public class JpaSearchTests {
     private TestEntity4Repository testEntity4Repository;
     @Autowired
     private ParentEntityRepository parentEntityRepository;
+    @Autowired
+    private TestCategoryRepository testCategoryRepository;
+    @Autowired
+    private TestEntityWithCategoryRepository testEntityWithCategoryRepository;
 
     private void setup() {
         var ent2 = new TestEntity2(
@@ -166,6 +170,22 @@ public class JpaSearchTests {
     private void setup4() {
         var foo = testEntity4Repository.save(new TestEntity4(0L, "parentFoo", "foo", null));
         testEntity4Repository.save(new TestEntity4(0L, "parentBar", "bar", foo));
+    }
+
+    private void setupMappedSuperclass() {
+        var category1 = testCategoryRepository.save(
+            new TestCategory(0L, "office rentals", "Office space rental contracts")
+        );
+        var category2 = testCategoryRepository.save(
+            new TestCategory(0L, "equipment leases", "Equipment leasing contracts")
+        );
+
+        testEntityWithCategoryRepository.save(
+            new TestEntityWithCategory(0L, "Contract A", category1)
+        );
+        testEntityWithCategoryRepository.save(
+            new TestEntityWithCategory(0L, "Contract B", category2)
+        );
     }
 
     private <T> Specification<T> specificationFrom(String filterString, Class<T> clazz) {
@@ -606,5 +626,73 @@ public class JpaSearchTests {
 
         List<TestEntity> result = testEntityRepository.findAll(specificationFrom(filterString, TestEntity.class));
         assertThat(result.get(0).getPrimitiveInteger()).isEqualTo(7);
+    }
+
+    /**
+     * Test that nested searchable fields from @MappedSuperclass work correctly.
+     * This test verifies the fix for ClassCastException when navigating through
+     * fields declared in @MappedSuperclass (e.g., category.name where name is
+     * declared in BaseMappedSuperclass).
+     */
+    @Test
+    public void testMappedSuperclassNestedSearch() {
+        setupMappedSuperclass();
+
+        var filterString = """
+                {
+                 "filter": ["eq", ["field", "category.name"], "office rentals"]
+                }
+                """;
+
+        List<TestEntityWithCategory> result = testEntityWithCategoryRepository.findAll(
+            specificationFrom(filterString, TestEntityWithCategory.class)
+        );
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).getTitle()).isEqualTo("Contract A");
+        assertThat(result.get(0).getCategory().getName()).isEqualTo("office rentals");
+    }
+
+    /**
+     * Test that case-insensitive search works with @MappedSuperclass fields.
+     */
+    @Test
+    public void testMappedSuperclassNestedSearchCaseInsensitive() {
+        setupMappedSuperclass();
+
+        var filterString = """
+                {
+                 "filter": ["eq", ["lower", ["field", "category.name"]], "office rentals"]
+                }
+                """;
+
+        List<TestEntityWithCategory> result = testEntityWithCategoryRepository.findAll(
+            specificationFrom(filterString, TestEntityWithCategory.class)
+        );
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).getTitle()).isEqualTo("Contract A");
+    }
+
+    /**
+     * Test that description field (also from @MappedSuperclass) works correctly.
+     */
+    @Test
+    public void testMappedSuperclassNestedSearchDescription() {
+        setupMappedSuperclass();
+
+        var filterString = """
+                {
+                 "filter": ["contains", ["field", "category.description"], "rental"]
+                }
+                """;
+
+        List<TestEntityWithCategory> result = testEntityWithCategoryRepository.findAll(
+            specificationFrom(filterString, TestEntityWithCategory.class)
+        );
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).getTitle()).isEqualTo("Contract A");
+        assertThat(result.get(0).getCategory().getDescription()).contains("rental");
     }
 }
