@@ -12,7 +12,7 @@ plugins {
 }
 
 group = "com.gisgro"
-version = "2.0"
+version = "2.0.13"
 
 java.apply {
     sourceCompatibility = JavaVersion.VERSION_17
@@ -41,6 +41,7 @@ dependencies {
     testAnnotationProcessor("org.projectlombok:lombok:1.18.26")
     implementation("com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.14.1")
     testImplementation("com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.14.1")
+
     // Utils
     implementation("org.apache.commons:commons-lang3:3.12.0")
 
