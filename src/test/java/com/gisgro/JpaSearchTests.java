@@ -352,6 +352,22 @@ public class JpaSearchTests {
     }
 
     @Test
+    public void testNullParsing() {
+        /* this test only verifies that null parsing, once
+           broken in feature/subclass-fields, works again */
+
+        var filterString = """
+                {
+                 "filter": ["isNull", null]
+                }
+                """;
+
+        List<TestEntity> result = testEntityRepository.findAll(specificationFrom(filterString, TestEntity.class));
+
+        assertThat(result).hasSize(0);
+    }
+
+    @Test
     public void testNested() {
         setup();
         var filterString = """
