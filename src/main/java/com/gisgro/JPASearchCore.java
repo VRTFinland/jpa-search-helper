@@ -51,6 +51,7 @@ public class JPASearchCore {
                     criteriaBuilder,
                     root,
                     query,
+                    entityClass,
                     entityClasses,
                     throwsIfNotExistsOrNotSearchable,
                     searchableFields
@@ -69,6 +70,7 @@ public class JPASearchCore {
             CriteriaBuilder cb,
             Root<?> root,
             CriteriaQuery<?> query,
+            Class<?> entityClass,
             Set<Class<?>> entityClasses,
             boolean throwsIfNotExistsOrNotSearchable,
             Map<String, List<Field>> searchableFields
@@ -97,7 +99,18 @@ public class JPASearchCore {
         } else if (node.isBoolean()) {
             return cb.literal(node.asBoolean());
         } else if (node.isArray()) {
-            return processExpression(node, cb, root, query, entityClasses, throwsIfNotExistsOrNotSearchable, searchableFields);
+            return processExpression(
+                    node,
+                    cb,
+                    root,
+                    query,
+                    entityClass,
+                    entityClasses,
+                    throwsIfNotExistsOrNotSearchable,
+                    searchableFields
+            );
+        } else if (node.isNull()) {
+            return cb.nullLiteral(entityClass);
         } else {
             throw new JPASearchException("unexpected: " + node);
         }
@@ -139,6 +152,7 @@ public class JPASearchCore {
             CriteriaBuilder cb,
             Root<?> root,
             CriteriaQuery<?> query,
+            Class<?> entityClass,
             Set<Class<?>> entityClasses,
             boolean throwsIfNotExistsOrNotSearchable,
             Map<String, List<Field>> searchableFields
@@ -159,6 +173,7 @@ public class JPASearchCore {
                             cb,
                             root,
                             query,
+                            entityClass,
                             entityClasses,
                             throwsIfNotExistsOrNotSearchable,
                             searchableFields
