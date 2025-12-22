@@ -15,7 +15,7 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.context.TestPropertySource;
 
-import javax.persistence.criteria.JoinType;
+import jakarta.persistence.criteria.JoinType;
 import java.math.BigDecimal;
 import java.time.*;
 import java.util.*;
@@ -51,13 +51,13 @@ public class JpaSearchTests {
 
     private void setup() {
         var ent2 = new TestEntity2(
-                0L,
+                null,
                 "Nested! daa dumdidum"
         );
 
         ent2 = testEntity2Repository.save(ent2);
         TestEntity ent = new TestEntity(
-                0L,
+                null,
                 6,
                 null,
                 "asdf",
@@ -90,18 +90,18 @@ public class JpaSearchTests {
 
     private void setup2() {
         var ent2a = new TestEntity2(
-                0L,
+                null,
                 "nested1"
         );
         ent2a = testEntity2Repository.save(ent2a);
         var ent2b = new TestEntity2(
-                0L,
+                null,
                 "nested2"
         );
         ent2b = testEntity2Repository.save(ent2b);
 
         TestEntity ent = new TestEntity(
-                0L,
+                null,
                 6,
                 null,
                 "asdf",
@@ -131,7 +131,7 @@ public class JpaSearchTests {
         );
         testEntityRepository.save(ent);
         ent = new TestEntity(
-                0L,
+                null,
                 7,
                 null,
                 "asdf",
@@ -163,28 +163,28 @@ public class JpaSearchTests {
     }
 
     private void setup3() {
-        var foo = testEntity3Repository.save(new TestEntity3(0L, "parentFoo", "foo", null));
-        testEntity3Repository.save(new TestEntity3(0L, "parentBar", "bar", foo));
+        var foo = testEntity3Repository.save(new TestEntity3(null, "parentFoo", "foo", null));
+        testEntity3Repository.save(new TestEntity3(null, "parentBar", "bar", foo));
     }
 
     private void setup4() {
-        var foo = testEntity4Repository.save(new TestEntity4(0L, "parentFoo", "foo", null));
-        testEntity4Repository.save(new TestEntity4(0L, "parentBar", "bar", foo));
+        var foo = testEntity4Repository.save(new TestEntity4(null, "parentFoo", "foo", null));
+        testEntity4Repository.save(new TestEntity4(null, "parentBar", "bar", foo));
     }
 
     private void setupMappedSuperclass() {
         var category1 = testCategoryRepository.save(
-            new TestCategory(0L, "office rentals", "Office space rental contracts")
+            new TestCategory(null, "office rentals", "Office space rental contracts")
         );
         var category2 = testCategoryRepository.save(
-            new TestCategory(0L, "equipment leases", "Equipment leasing contracts")
+            new TestCategory(null, "equipment leases", "Equipment leasing contracts")
         );
 
         testEntityWithCategoryRepository.save(
-            new TestEntityWithCategory(0L, "Contract A", category1)
+            new TestEntityWithCategory(null, "Contract A", category1)
         );
         testEntityWithCategoryRepository.save(
-            new TestEntityWithCategory(0L, "Contract B", category2)
+            new TestEntityWithCategory(null, "Contract B", category2)
         );
     }
 

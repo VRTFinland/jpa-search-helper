@@ -13,7 +13,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 
-import javax.persistence.criteria.*;
+import jakarta.persistence.criteria.*;
 import java.lang.reflect.Field;
 import java.util.*;
 
@@ -140,8 +140,6 @@ public class JPASearchCore {
 
         if (searchable.trim() && descriptor.searchType == SearchType.STRING) {
             return cb.trim(path.as(String.class));
-        } else if (field.getType().isEnum()) {
-            return path.as(field.getType());
         }
 
         return path;

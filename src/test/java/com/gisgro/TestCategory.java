@@ -2,8 +2,8 @@ package com.gisgro;
 
 import lombok.NoArgsConstructor;
 
-import javax.persistence.Entity;
-import javax.persistence.Table;
+import jakarta.persistence.Entity;
+import jakarta.persistence.Table;
 
 /**
  * Concrete entity extending BaseMappedSuperclass to test

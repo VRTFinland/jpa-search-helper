@@ -4,8 +4,8 @@ import com.gisgro.exceptions.JPASearchException;
 import com.gisgro.utils.JPAFuncWithExpressions;
 import com.gisgro.utils.JPAFuncWithObjects;
 
-import javax.persistence.MappedSuperclass;
-import javax.persistence.criteria.*;
+import jakarta.persistence.MappedSuperclass;
+import jakarta.persistence.criteria.*;
 import java.math.BigDecimal;
 import java.sql.Date;
 import java.time.Period;

@@ -7,8 +7,8 @@ buildscript {
 plugins {
     id("java-library")
     id("maven-publish")
-    id("org.springframework.boot") version "2.7.11"
-    id("io.spring.dependency-management") version "1.0.11.RELEASE"
+    id("org.springframework.boot") version "3.5.0"
+    id("io.spring.dependency-management") version "1.1.5"
 }
 
 group = "com.gisgro"
@@ -27,10 +27,10 @@ repositories {
 
 dependencies {
     // JPA
-    implementation("jakarta.persistence:jakarta.persistence-api:2.2.3")
+    implementation("jakarta.persistence:jakarta.persistence-api:3.1.0")
 
     // Spring
-    implementation("org.springframework.data:spring-data-jpa:2.7.11")
+    implementation("org.springframework.data:spring-data-jpa")
     implementation("org.springframework:spring-beans")
 
     // Lombok
@@ -39,8 +39,8 @@ dependencies {
     testImplementation("org.projectlombok:lombok:1.18.26")
     testCompileOnly("org.projectlombok:lombok:1.18.26")
     testAnnotationProcessor("org.projectlombok:lombok:1.18.26")
-    implementation("com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.14.1")
-    testImplementation("com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.14.1")
+    implementation("com.fasterxml.jackson.datatype:jackson-datatype-jsr310")
+    testImplementation("com.fasterxml.jackson.datatype:jackson-datatype-jsr310")
 
     // Utils
     implementation("org.apache.commons:commons-lang3:3.12.0")
