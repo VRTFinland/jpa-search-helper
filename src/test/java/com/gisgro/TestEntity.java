@@ -3,6 +3,7 @@ package com.gisgro;
 import com.gisgro.annotations.NestedSearchable;
 import com.gisgro.annotations.Searchable;
 import com.gisgro.model.SearchType;
+import java.util.Set;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.Setter;
@@ -100,8 +101,15 @@ public class TestEntity {
     private TestEntity2 nested;
 
     @Searchable
+    @OneToMany(mappedBy = "entity1")
+    private Set<TestEntity2> nestedSet;
+
+    @Searchable
     private TestEnum testEnum;
 
     @Searchable
     private Period period;
+
+    @ManyToOne
+    private TestEntity5 entity5;
 }

@@ -43,19 +43,21 @@ public class JpaSearchTests {
     @Autowired
     private TestEntity4Repository testEntity4Repository;
     @Autowired
+    private TestEntity5Repository testEntity5Repository;
+    @Autowired
     private ParentEntityRepository parentEntityRepository;
     @Autowired
     private TestCategoryRepository testCategoryRepository;
     @Autowired
     private TestEntityWithCategoryRepository testEntityWithCategoryRepository;
 
-    private void setup() {
+    private TestEntity setup() {
         var ent2 = new TestEntity2(
                 0L,
                 "Nested! daa dumdidum"
         );
-
         ent2 = testEntity2Repository.save(ent2);
+        // Create TestEntity first
         TestEntity ent = new TestEntity(
                 0L,
                 6,
@@ -82,10 +84,28 @@ public class JpaSearchTests {
                 false,
                 true,
                 ent2,
+                new HashSet<>(),
                 TestEnum.VALUE1,
-                Period.parse("P6M")
+                Period.parse("P6M"),
+                null
         );
-        testEntityRepository.save(ent);
+        ent = testEntityRepository.save(ent);
+        // Now create set0 and set1, set their parent to ent
+        var set0 = new TestEntity2(
+                0L,
+                "nestedSet0",
+                ent
+        );
+        set0 = testEntity2Repository.save(set0);
+        var set1 = new TestEntity2(
+                0L,
+                "nestedSet1",
+                ent
+        );
+        set1 = testEntity2Repository.save(set1);
+        // Update ent's nestedSet and save again
+        ent.setNestedSet(new HashSet<>(Arrays.asList(set0, set1)));
+        return testEntityRepository.save(ent);
     }
 
     private void setup2() {
@@ -126,8 +146,10 @@ public class JpaSearchTests {
                 false,
                 true,
                 ent2a,
+                Collections.emptySet(),
                 TestEnum.VALUE1,
-                Period.parse("P12M")
+                Period.parse("P12M"),
+                null
         );
         testEntityRepository.save(ent);
         ent = new TestEntity(
@@ -156,8 +178,10 @@ public class JpaSearchTests {
                 false,
                 true,
                 ent2b,
+                Collections.emptySet(),
                 TestEnum.VALUE2,
-                Period.parse("P6M")
+                Period.parse("P6M"),
+                null
         );
         testEntityRepository.save(ent);
     }
@@ -170,6 +194,18 @@ public class JpaSearchTests {
     private void setup4() {
         var foo = testEntity4Repository.save(new TestEntity4(0L, "parentFoo", "foo", null));
         testEntity4Repository.save(new TestEntity4(0L, "parentBar", "bar", foo));
+    }
+
+    private void setup5() {
+        var entity = setup();
+        var entity5 = new TestEntity5();
+        testEntity5Repository.save(entity5);
+        entity.setEntity5(entity5);
+        testEntityRepository.save(entity);
+        List<TestEntity> nestedList = new ArrayList<>();
+        nestedList.add(entity);
+        entity5.setNestedList(nestedList);
+        testEntity5Repository.save(entity5);
     }
 
     private void setupMappedSuperclass() {
@@ -204,6 +240,22 @@ public class JpaSearchTests {
                 clazz,
                 true,
                 searchableSubclasses
+        );
+    }
+
+    @SneakyThrows
+    private <T> Specification<T> specificationFrom(
+        String filterString,
+        Class<T> clazz,
+        Map<String,Class<?>> searchableCollectionClasses
+    ) {
+        JsonNode filters = mapper.readTree(filterString);
+        return JPASearchCore.specification(
+            filters,
+            clazz,
+            true,
+            Collections.emptySet(),
+            searchableCollectionClasses
         );
     }
 
@@ -710,5 +762,87 @@ public class JpaSearchTests {
         assertThat(result).hasSize(1);
         assertThat(result.get(0).getTitle()).isEqualTo("Contract A");
         assertThat(result.get(0).getCategory().getDescription()).contains("rental");
+    }
+
+    @Test
+    public void testNestedSetEqual() {
+        setup();
+        var filterString = """
+                {
+                 "filter": ["has", "nestedSet", ["and", ["eq", ["field", "string"], "nestedSet0"]]]
+                }
+                """;
+
+        List<TestEntity> result = testEntityRepository.findAll(specificationFrom(filterString, TestEntity.class, Map.of("nestedSet", TestEntity2.class)));
+
+        assertThat(result).hasSize(1);
+        System.out.println(result.get(0).getNestedSet().stream().map(TestEntity2::getString).reduce((a, b) -> a + ", " + b).orElse(""));
+    }
+
+    @Test
+    public void testNestedSetContains() {
+        setup();
+        var filterString = """
+                {
+                 "filter": ["has", "nestedSet", ["and", ["contains", ["field", "string"], "nested"]]]
+                }
+                """;
+
+        List<TestEntity> result = testEntityRepository.findAll(specificationFrom(filterString, TestEntity.class, Map.of("nestedSet", TestEntity2.class)));
+
+        assertThat(result).hasSize(1);
+        System.out.println("RESULTSTRINGS:"+result.get(0).getNestedSet().stream().map(TestEntity2::getString).reduce((a, b) -> a + ", " + b).orElse(""));
+        System.out.println("RESULTIDS:"+result.stream().map(e -> e.getId().toString()).reduce((a, b) -> a + ", " + b).orElse(""));
+    }
+
+    @Test
+    public void testNestedSetIsNull() {
+        setup();
+        var filterString = """
+                {
+                 "filter": ["has", "nestedSet", ["and", ["isNull", ["field", "string"]]]]
+                }
+                """;
+
+        List<TestEntity> result = testEntityRepository.findAll(specificationFrom(filterString, TestEntity.class, Map.of("nestedSet", TestEntity2.class)));
+
+        assertThat(result).hasSize(0);
+
+        var filterString2 = """
+                {
+                 "filter": ["and", ["isNull", ["field", "string"]]]
+                }
+                """;
+        List<TestEntity2> result2 = testEntity2Repository.findAll(specificationFrom(filterString2, TestEntity2.class));
+
+        assertThat(result2).hasSize(0);
+    }
+
+    @Test
+    public void testNestedSetEmpty() {
+        setup();
+        var filterString = """
+                {
+                 "filter": ["not", ["has", "nestedSet", ["and", ["isNull", ["field", "string"]]]]]
+                }
+                """;
+
+        List<TestEntity> result = testEntityRepository.findAll(specificationFrom(filterString, TestEntity.class, Map.of("nestedSet", TestEntity2.class)));
+
+        assertThat(result).hasSize(1);
+    }
+
+    @Test
+    public void testDoublyNestedSetEqual() {
+        setup5();
+        var filterString = """
+                {
+                 "filter": ["has", "nestedList", ["and", ["has", "nestedSet", ["and", ["eq", ["field", "string"], "nestedSet0"]]]]]
+                }
+                """;
+
+        List<TestEntity5> result = testEntity5Repository.findAll(specificationFrom(filterString, TestEntity5.class, Map.of("nestedList", TestEntity.class, "nestedList.nestedSet", TestEntity2.class)));
+
+        assertThat(result).hasSize(1);
     }
 }

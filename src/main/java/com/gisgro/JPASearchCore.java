@@ -7,6 +7,7 @@ import com.gisgro.exceptions.JPASearchException;
 import com.gisgro.model.Operator;
 import com.gisgro.model.SearchType;
 import com.gisgro.utils.ReflectionUtils;
+import java.util.stream.Collectors;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import org.springframework.data.domain.PageRequest;
@@ -39,6 +40,22 @@ public class JPASearchCore {
             boolean throwsIfNotExistsOrNotSearchable,
             Set<Class<?>> searchableSubclasses
     ) {
+        return specification(
+                filterPayload,
+                entityClass,
+                throwsIfNotExistsOrNotSearchable,
+                searchableSubclasses,
+                Collections.emptyMap()
+        );
+    }
+
+    public static <R, T> Specification<R> specification(
+            JsonNode filterPayload,
+            Class<T> entityClass,
+            boolean throwsIfNotExistsOrNotSearchable,
+            Set<Class<?>> searchableSubclasses,
+            Map<String, Class<?>> searchableCollectionTargetClasses
+    ) {
         HashSet<Class<?>> entityClasses = new HashSet<>(searchableSubclasses);
         entityClasses.add(entityClass);
 
@@ -54,7 +71,8 @@ public class JPASearchCore {
                     entityClass,
                     entityClasses,
                     throwsIfNotExistsOrNotSearchable,
-                    searchableFields
+                    searchableFields,
+                    searchableCollectionTargetClasses
             );
             if (expr instanceof Predicate) {
                 return (Predicate) expr;
@@ -63,17 +81,71 @@ public class JPASearchCore {
             }
         };
     }
+    private static <T, X> Object processSubValue(
+        Operator op,
+        JsonNode node,
+        CriteriaBuilder cb,
+        Root<T> root,
+        Subquery<X> subquery,
+        Class<?> entityClass,
+        Set<Class<?>> entityClasses,
+        boolean throwsIfNotExistsOrNotSearchable,
+        Map<String, List<Field>> searchableFields,
+        Map<String, Class<?>> searchableCollectionTargetClasses
+    ) {
+        if (node.isTextual()) {
+            var text = node.asText();
+            if (Objects.equals(op.getName(), "field")) {
+                return processField(
+                    cb,
+                    root,
+                    throwsIfNotExistsOrNotSearchable,
+                    searchableFields,
+                    text
+                );
+            } else if (!op.isEvaluateStrings()) {
+                return text;
+            } else {
+                return cb.literal(text);
+            }
+        } else if (node.isInt()) {
+            return cb.literal(node.asInt());
+        } else if (node.isLong()) {
+            return cb.literal(node.asLong());
+        } else if (node.isDouble()) {
+            return cb.literal(node.asDouble());
+        } else if (node.isBoolean()) {
+            return cb.literal(node.asBoolean());
+        } else if (node.isArray()) {
+            return processSubExpression(
+                node,
+                cb,
+                root,
+                subquery,
+                entityClass,
+                entityClasses,
+                throwsIfNotExistsOrNotSearchable,
+                searchableFields,
+                searchableCollectionTargetClasses
+            );
+        } else if (node.isNull()) {
+            return cb.nullLiteral(entityClass);
+        } else {
+            throw new JPASearchException("unexpected: " + node);
+        }
+    }
 
     private static <T> Object processValue(
             Operator op,
             JsonNode node,
             CriteriaBuilder cb,
-            Root<?> root,
+            Root<T> root,
             CriteriaQuery<?> query,
             Class<?> entityClass,
             Set<Class<?>> entityClasses,
             boolean throwsIfNotExistsOrNotSearchable,
-            Map<String, List<Field>> searchableFields
+            Map<String, List<Field>> searchableFields,
+            Map<String, Class<?>> searchableCollectionTargetClasses
     ) {
         if (node.isTextual()) {
             var text = node.asText();
@@ -107,7 +179,8 @@ public class JPASearchCore {
                     entityClass,
                     entityClasses,
                     throwsIfNotExistsOrNotSearchable,
-                    searchableFields
+                    searchableFields,
+                    searchableCollectionTargetClasses
             );
         } else if (node.isNull()) {
             return cb.nullLiteral(entityClass);
@@ -146,6 +219,85 @@ public class JPASearchCore {
 
         return path;
     }
+    private static Expression<?> processSubExpression(
+        JsonNode node,
+        CriteriaBuilder cb,
+        Root<?> root,
+        Subquery<?> query,
+        Class<?> entityClass,
+        Set<Class<?>> entityClasses,
+        boolean throwsIfNotExistsOrNotSearchable,
+        final Map<String, List<Field>> searchableFields,
+        Map<String, Class<?>> searchableCollectionTargetClasses
+    ) {
+        if (!node.isArray() || node.isEmpty() || !node.get(0).isTextual()) {
+            throw new JPASearchException("Invalid expression");
+        }
+
+        var op = Operator.load(node.get(0).textValue());
+        var arguments = new ArrayList<>();
+        if (op.getName().equals("has")) {
+            var attrName = node.get(1).asText();
+            var subClass = searchableCollectionTargetClasses.get(attrName);
+            Subquery subquery = query.subquery(subClass);
+            Root subRoot = subquery.from(subClass);
+
+            Map<String, Class<?>> subMap = searchableCollectionTargetClasses.entrySet().stream()
+                .filter(c -> c.getKey().startsWith(attrName) && c.getKey().length() > attrName.length() + 1)
+                .map(c -> {
+                    var newKey = c.getKey().substring(attrName.length() + 1);
+                    return Map.entry(newKey, c.getValue());
+                })
+                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+
+            var subFields = ReflectionUtils.getAllSearchableFields(Set.of(subClass));
+            var subCriteriaBuilder = cb;
+
+            var subValue = processSubValue(
+                    op,
+                    node.get(2),
+                    subCriteriaBuilder,
+                    subRoot,
+                    subquery,
+                    subClass,
+                    entityClasses, // pass through to support nested situations
+                    throwsIfNotExistsOrNotSearchable,
+                    subFields,
+                    subMap
+            );
+
+            subquery.select(subRoot).where((Predicate) subValue);
+
+            var rootSubquery = query.subquery(root.getJavaType());
+            var rootSubRoot = rootSubquery.from(root.getJavaType());
+            var rootSubPredicate = rootSubRoot.join(attrName, JoinType.LEFT).in(subquery);
+            rootSubquery.select(rootSubRoot.get("id")).where(rootSubPredicate);
+            return root.get("id").in(rootSubquery);
+        }
+
+        for (var i = 1; i < node.size(); i++) {
+            var child = node.get(i);
+            arguments.add(
+                processSubValue(
+                    op,
+                    child,
+                    cb,
+                    root,
+                    query,
+                    entityClass,
+                    entityClasses,
+                    throwsIfNotExistsOrNotSearchable,
+                    searchableFields,
+                    searchableCollectionTargetClasses
+                )
+            );
+        }
+        if (op.isEvaluateStrings()) {
+            return op.getExprFunction().apply(cb, arguments.toArray(new Expression[0]));
+        } else {
+            return op.getObjFunction().apply(root, (CriteriaQuery<?>) query, cb, arguments.toArray(), searchableFields);
+        }
+    }
 
     private static Expression<?> processExpression(
             JsonNode node,
@@ -155,7 +307,8 @@ public class JPASearchCore {
             Class<?> entityClass,
             Set<Class<?>> entityClasses,
             boolean throwsIfNotExistsOrNotSearchable,
-            Map<String, List<Field>> searchableFields
+            final Map<String, List<Field>> searchableFields,
+            Map<String, Class<?>> searchableCollectionTargetClasses
     ) {
         if (!node.isArray() || node.isEmpty() || !node.get(0).isTextual()) {
             throw new JPASearchException("Invalid expression");
@@ -163,22 +316,62 @@ public class JPASearchCore {
 
         var op = Operator.load(node.get(0).textValue());
         var arguments = new ArrayList<>();
+        if (op.getName().equals("has")) {
+            var attrName = node.get(1).asText();
+            var subClass = searchableCollectionTargetClasses.get(attrName);
+            Subquery subquery = query.subquery(subClass);
+            Root subRoot = subquery.from(subClass);
 
-        for (var i = 1; i < node.size(); i++) {
-            var child = node.get(i);
-            arguments.add(
-                    processValue(
-                            op,
-                            child,
-                            cb,
-                            root,
-                            query,
-                            entityClass,
-                            entityClasses,
-                            throwsIfNotExistsOrNotSearchable,
-                            searchableFields
-                    )
+            Map<String, Class<?>> subMap = searchableCollectionTargetClasses.entrySet().stream()
+                .filter(c -> c.getKey().startsWith(attrName) && c.getKey().length() > attrName.length() + 1)
+                .map(c -> {
+                    var newKey = c.getKey().substring(attrName.length() + 1);
+                    return Map.entry(newKey, c.getValue());
+                })
+                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+
+            var subFields = ReflectionUtils.getAllSearchableFields(Set.of(subClass));
+            var subCriteriaBuilder = cb;
+
+            var subValue = processSubValue(
+                    op,
+                    node.get(2),
+                    subCriteriaBuilder,
+                    subRoot,
+                    subquery,
+                    subClass,
+                    entityClasses, // pass through to support nested situations
+                    throwsIfNotExistsOrNotSearchable,
+                    subFields,
+                    subMap
             );
+
+            subquery.select(subRoot).where((Predicate) subValue);
+
+            var rootSubquery = query.subquery(root.getJavaType());
+            var rootSubRoot = rootSubquery.from(root.getJavaType());
+            var rootSubPredicate = rootSubRoot.join(attrName, JoinType.LEFT).in(subquery);
+            rootSubquery.select(rootSubRoot.get("id")).where(rootSubPredicate);
+            return root.get("id").in(rootSubquery);
+
+        } else {
+            for (var i = 1; i < node.size(); i++) {
+                var child = node.get(i);
+                arguments.add(
+                    processValue(
+                        op,
+                        child,
+                        cb,
+                        root,
+                        query,
+                        entityClass,
+                        entityClasses,
+                        throwsIfNotExistsOrNotSearchable,
+                        searchableFields,
+                        searchableCollectionTargetClasses
+                    )
+                );
+            }
         }
         if (op.isEvaluateStrings()) {
             return op.getExprFunction().apply(cb, arguments.toArray(new Expression[0]));
