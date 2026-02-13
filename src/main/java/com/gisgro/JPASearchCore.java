@@ -8,6 +8,8 @@ import com.gisgro.model.Operator;
 import com.gisgro.model.SearchType;
 import com.gisgro.utils.ReflectionUtils;
 import java.util.stream.Collectors;
+import javax.persistence.Id;
+import javax.persistence.OneToMany;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import org.springframework.data.domain.PageRequest;
@@ -194,6 +196,7 @@ public class JPASearchCore {
             AbstractQuery<?> query,
             Set<Class<?>> entityClasses,
             boolean throwsIfNotExistsOrNotSearchable,
+            Map<String, List<Field>> searchableFields,
             Map<String, Class<?>> searchableCollectionTargetClasses
     ) {
         // First we need to do build the subquery for the collection items
@@ -229,17 +232,34 @@ public class JPASearchCore {
                 subCollectionTargetClasses
         );
 
-        String rootIdFieldName = root.getModel().getId(root.getModel().getIdType().getJavaType()).getName();
-        String subIdFieldName = subRoot.getModel().getId(subRoot.getModel().getIdType().getJavaType()).getName();
 
-        subquery.select(subRoot.get(subIdFieldName)).where((Predicate) subValue);
+        // Second we need to join the result back to root query
 
-        // Then we can query the root entity for the match based on subquery results. Using a second subquery we can eliminate duplicates.
-        var rootSubquery = query.subquery(root.getJavaType());
-        var rootSubRoot = rootSubquery.from(root.getJavaType());
-        var rootSubPredicate = rootSubRoot.join(attrName, JoinType.LEFT).in(subquery);
-        rootSubquery.select(rootSubRoot.get(rootIdFieldName)).where(rootSubPredicate);
-        return root.get(rootIdFieldName).in(rootSubquery);
+        // Join from subquery root to parent entity (not necessarily the main root, but the parent of the collection)
+        var descriptor = loadDescriptor(attrName, throwsIfNotExistsOrNotSearchable, false, false, searchableFields);
+        if (descriptor == null) {
+            throw new JPASearchException("Invalid field for has operator: " + attrName);
+        }
+        var field = descriptor.fieldPath.get(descriptor.fieldPath.size() - 1);
+        var oneToMany = field.getAnnotation(OneToMany.class);
+        var backRefFieldName = oneToMany.mappedBy();
+        var join = subRoot.join(backRefFieldName, JoinType.INNER);
+
+        // Handle possible nested path to get to parent entity from main root
+        var parentPath = descriptor.fieldPath.size() > 1 ? descriptor.fieldPath.subList(0, descriptor.fieldPath.size() - 1) : null;
+        var rootParentDescriptor = parentPath != null ? new JPASearchCore.Descriptor(descriptor.searchType, parentPath) : null;
+        var rootParentExpr = rootParentDescriptor != null ? getPath(cb, root, rootParentDescriptor) : root;
+
+        // Combine rootParentExpr and subquery join on parent id field
+        var parentClass = rootParentExpr.getJavaType();
+        var parentIdFieldName = Arrays.stream(parentClass.getDeclaredFields())
+            .filter(f -> f.isAnnotationPresent(Id.class))
+            .findFirst()
+            .orElseThrow(() -> new JPASearchException("Cannot find id field for class " + parentClass.getName()))
+            .getName();
+
+        subquery.select(join.get(parentIdFieldName)).where((Predicate) subValue);
+        return rootParentExpr.in(subquery);
     }
 
     private static Expression<?> processExpression(
@@ -267,6 +287,7 @@ public class JPASearchCore {
                     query,
                     entityClasses,
                     throwsIfNotExistsOrNotSearchable,
+                    searchableFields,
                     searchableCollectionTargetClasses
             );
         }

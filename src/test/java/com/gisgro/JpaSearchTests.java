@@ -199,12 +199,14 @@ public class JpaSearchTests {
     private void setup5() {
         var entity = setup();
         var entity5 = new TestEntity5();
+        entity5.setEntity1(entity);
         testEntity5Repository.save(entity5);
         entity.setEntity5(entity5);
         testEntityRepository.save(entity);
         List<TestEntity> nestedList = new ArrayList<>();
         nestedList.add(entity);
         entity5.setNestedList(nestedList);
+        entity5.setEntity1(entity);
         testEntity5Repository.save(entity5);
     }
 
@@ -850,7 +852,7 @@ public class JpaSearchTests {
         setup5();
         var filterString = """
                 {
-                 "filter": ["has", "nestedList", ["and", ["has", "nestedSet", ["and", ["eq", ["field", "string"], "nestedSet0"]]]]]
+                 "filter": ["has", "nestedList", ["has", "nestedSet", ["eq", ["field", "string"], "nestedSet0"]]]
                 }
                 """;
 
@@ -865,7 +867,7 @@ public class JpaSearchTests {
         // Filter for TestEntity5 that has a nestedList item for which at least one nestedSet items does not contain string "nestedSet"
         var filterString = """
                 {
-                 "filter": ["has", "nestedList", ["and", ["has", "nestedSet", ["and", ["not", ["contains", ["field", "string"], "nestedSet"]]]]]]
+                 "filter": ["has", "nestedList", ["has", "nestedSet", ["and", ["not", ["contains", ["field", "string"], "nestedSet"]]]]]
                 }
                 """;
 
@@ -876,7 +878,7 @@ public class JpaSearchTests {
         // Filter for TestEntity5 that has a nestedList item for which at least one nestedSet items does not contain string "nestedSet0"
         var filterString2 = """
                 {
-                 "filter": ["has", "nestedList", ["and", ["has", "nestedSet", ["and", ["not", ["contains", ["field", "string"], "nestedSet0"]]]]]]
+                 "filter": ["has", "nestedList", ["has", "nestedSet", ["and", ["not", ["contains", ["field", "string"], "nestedSet0"]]]]]
                 }
                 """;
 
@@ -891,7 +893,7 @@ public class JpaSearchTests {
         // Filter for TestEntity5 that has a nestedList item for which none of the nestedSet items have string equal to "nestedSet0"
         var filterString = """
                 {
-                 "filter": ["has", "nestedList", ["and", ["not", ["has", "nestedSet", ["and", ["eq", ["field", "string"], "nestedSet0"]]]]]]
+                 "filter": ["has", "nestedList", ["not", ["has", "nestedSet", ["and", ["eq", ["field", "string"], "nestedSet0"]]]]]
                 }
                 """;
 
@@ -902,12 +904,27 @@ public class JpaSearchTests {
         // Filter for TestEntity5 that has a nestedList item for which none of the nestedSet items have string that is null
         var filterString2 = """
                 {
-                 "filter": ["has", "nestedList", ["and", ["not", ["has", "nestedSet", ["and", ["isNull", ["field", "string"]]]]]]]
+                 "filter": ["has", "nestedList", ["not", ["has", "nestedSet", ["and", ["isNull", ["field", "string"]]]]]]
                 }
                 """;
 
         List<TestEntity5> result2 = testEntity5Repository.findAll(specificationFrom(filterString2, TestEntity5.class, Map.of("nestedList", TestEntity.class, "nestedList.nestedSet", TestEntity2.class)));
 
         assertThat(result2).hasSize(1);
+    }
+
+    @Test
+    public void testHasWithNestedField() {
+        setup5();
+
+        var filterString = """
+                {
+                 "filter": ["has", "entity1.nestedSet", ["contains", ["field", "string"], "nestedSet"]]
+                }
+                """;
+
+        List<TestEntity5> result = testEntity5Repository.findAll(specificationFrom(filterString, TestEntity5.class, Map.of("entity1.nestedSet", TestEntity2.class)));
+
+        assertThat(result).hasSize(1);
     }
 }
