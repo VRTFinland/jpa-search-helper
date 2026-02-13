@@ -76,10 +76,7 @@ public class JPASearchFunctions {
         throw new JPASearchException(String.format("Cannot find enum %s", className));
     };
 
-    public static final JPAFuncWithExpressions<?, ?> HAS = (cb, values) -> {
-        // no-op, handled in processValue.
-        return values[0];
-    };
+    public static final JPAFuncWithExpressions<?, ?> HAS = (cb, values) -> values[0]; // no-op, handled in processExpression
 
     public static <Z, X> Expression<Z> getPath(
             CriteriaBuilder cb,

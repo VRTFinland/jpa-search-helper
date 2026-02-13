@@ -50,6 +50,21 @@ public class JPASearchCore {
     }
 
     public static <R, T> Specification<R> specification(
+        JsonNode filterPayload,
+        Class<T> entityClass,
+        boolean throwsIfNotExistsOrNotSearchable,
+        Map<String, Class<?>> searchableCollectionTargetClasses
+    ) {
+        return specification(
+            filterPayload,
+            entityClass,
+            throwsIfNotExistsOrNotSearchable,
+            Collections.emptySet(),
+            searchableCollectionTargetClasses
+        );
+    }
+
+    public static <R, T> Specification<R> specification(
             JsonNode filterPayload,
             Class<T> entityClass,
             boolean throwsIfNotExistsOrNotSearchable,
@@ -81,66 +96,13 @@ public class JPASearchCore {
             }
         };
     }
-    private static <T, X> Object processSubValue(
-        Operator op,
-        JsonNode node,
-        CriteriaBuilder cb,
-        Root<T> root,
-        Subquery<X> subquery,
-        Class<?> entityClass,
-        Set<Class<?>> entityClasses,
-        boolean throwsIfNotExistsOrNotSearchable,
-        Map<String, List<Field>> searchableFields,
-        Map<String, Class<?>> searchableCollectionTargetClasses
-    ) {
-        if (node.isTextual()) {
-            var text = node.asText();
-            if (Objects.equals(op.getName(), "field")) {
-                return processField(
-                    cb,
-                    root,
-                    throwsIfNotExistsOrNotSearchable,
-                    searchableFields,
-                    text
-                );
-            } else if (!op.isEvaluateStrings()) {
-                return text;
-            } else {
-                return cb.literal(text);
-            }
-        } else if (node.isInt()) {
-            return cb.literal(node.asInt());
-        } else if (node.isLong()) {
-            return cb.literal(node.asLong());
-        } else if (node.isDouble()) {
-            return cb.literal(node.asDouble());
-        } else if (node.isBoolean()) {
-            return cb.literal(node.asBoolean());
-        } else if (node.isArray()) {
-            return processSubExpression(
-                node,
-                cb,
-                root,
-                subquery,
-                entityClass,
-                entityClasses,
-                throwsIfNotExistsOrNotSearchable,
-                searchableFields,
-                searchableCollectionTargetClasses
-            );
-        } else if (node.isNull()) {
-            return cb.nullLiteral(entityClass);
-        } else {
-            throw new JPASearchException("unexpected: " + node);
-        }
-    }
 
     private static <T> Object processValue(
             Operator op,
             JsonNode node,
             CriteriaBuilder cb,
-            Root<T> root,
-            CriteriaQuery<?> query,
+            Root<?> root,
+            AbstractQuery<?> query,
             Class<?> entityClass,
             Set<Class<?>> entityClasses,
             boolean throwsIfNotExistsOrNotSearchable,
@@ -219,95 +181,76 @@ public class JPASearchCore {
 
         return path;
     }
-    private static Expression<?> processSubExpression(
-        JsonNode node,
-        CriteriaBuilder cb,
-        Root<?> root,
-        Subquery<?> query,
-        Class<?> entityClass,
-        Set<Class<?>> entityClasses,
-        boolean throwsIfNotExistsOrNotSearchable,
-        final Map<String, List<Field>> searchableFields,
-        Map<String, Class<?>> searchableCollectionTargetClasses
+
+    /**
+     * Processes the "has" operator, which checks for the existence of related entities in a collection.
+     * This operator needs to create a subquery to check for the existence of related entities that match the specified criteria.
+     * Basic Operator handling is not sufficient for this operator, as it requires a more complex query structure involving joins and subqueries.
+     */
+    private static Expression<?> processHasOperator(
+            JsonNode node,
+            CriteriaBuilder cb,
+            Root<?> root,
+            AbstractQuery<?> query,
+            Set<Class<?>> entityClasses,
+            boolean throwsIfNotExistsOrNotSearchable,
+            Map<String, Class<?>> searchableCollectionTargetClasses
     ) {
-        if (!node.isArray() || node.isEmpty() || !node.get(0).isTextual()) {
-            throw new JPASearchException("Invalid expression");
-        }
+        // First we need to do build the subquery for the collection items
+        var attrName = node.get(1).asText();
+        var subClass = searchableCollectionTargetClasses.get(attrName);
+        Subquery<?> subquery = query.subquery(subClass);
+        Root<?> subRoot = subquery.from(subClass);
+
+        Map<String, Class<?>> subCollectionTargetClasses = searchableCollectionTargetClasses.entrySet().stream()
+            .filter(c -> {
+                var keyParts = c.getKey().split("\\.", 2);
+                return keyParts.length == 2 && keyParts[0].equals(attrName);
+            })
+            .map(c -> {
+                var newKey = c.getKey().split("\\.", 2)[1];
+                return Map.entry(newKey, c.getValue());
+            })
+            .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+
+        var subFields = ReflectionUtils.getAllSearchableFields(Set.of(subClass));
 
         var op = Operator.load(node.get(0).textValue());
-        var arguments = new ArrayList<>();
-        if (op.getName().equals("has")) {
-            var attrName = node.get(1).asText();
-            var subClass = searchableCollectionTargetClasses.get(attrName);
-            Subquery subquery = query.subquery(subClass);
-            Root subRoot = subquery.from(subClass);
+        var subValue = processValue(
+                op,
+                node.get(2),
+                cb,
+                subRoot,
+                subquery,
+                subClass,
+                entityClasses,
+                throwsIfNotExistsOrNotSearchable,
+                subFields,
+                subCollectionTargetClasses
+        );
 
-            Map<String, Class<?>> subMap = searchableCollectionTargetClasses.entrySet().stream()
-                .filter(c -> c.getKey().startsWith(attrName) && c.getKey().length() > attrName.length() + 1)
-                .map(c -> {
-                    var newKey = c.getKey().substring(attrName.length() + 1);
-                    return Map.entry(newKey, c.getValue());
-                })
-                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+        String rootIdFieldName = root.getModel().getId(root.getModel().getIdType().getJavaType()).getName();
+        String subIdFieldName = subRoot.getModel().getId(subRoot.getModel().getIdType().getJavaType()).getName();
 
-            var subFields = ReflectionUtils.getAllSearchableFields(Set.of(subClass));
-            var subCriteriaBuilder = cb;
+        subquery.select(subRoot.get(subIdFieldName)).where((Predicate) subValue);
 
-            var subValue = processSubValue(
-                    op,
-                    node.get(2),
-                    subCriteriaBuilder,
-                    subRoot,
-                    subquery,
-                    subClass,
-                    entityClasses, // pass through to support nested situations
-                    throwsIfNotExistsOrNotSearchable,
-                    subFields,
-                    subMap
-            );
-
-            subquery.select(subRoot).where((Predicate) subValue);
-
-            var rootSubquery = query.subquery(root.getJavaType());
-            var rootSubRoot = rootSubquery.from(root.getJavaType());
-            var rootSubPredicate = rootSubRoot.join(attrName, JoinType.LEFT).in(subquery);
-            rootSubquery.select(rootSubRoot.get("id")).where(rootSubPredicate);
-            return root.get("id").in(rootSubquery);
-        }
-
-        for (var i = 1; i < node.size(); i++) {
-            var child = node.get(i);
-            arguments.add(
-                processSubValue(
-                    op,
-                    child,
-                    cb,
-                    root,
-                    query,
-                    entityClass,
-                    entityClasses,
-                    throwsIfNotExistsOrNotSearchable,
-                    searchableFields,
-                    searchableCollectionTargetClasses
-                )
-            );
-        }
-        if (op.isEvaluateStrings()) {
-            return op.getExprFunction().apply(cb, arguments.toArray(new Expression[0]));
-        } else {
-            return op.getObjFunction().apply(root, (CriteriaQuery<?>) query, cb, arguments.toArray(), searchableFields);
-        }
+        // Then we can query the root entity for the match based on subquery results. Using a second subquery we can eliminate duplicates.
+        var rootSubquery = query.subquery(root.getJavaType());
+        var rootSubRoot = rootSubquery.from(root.getJavaType());
+        var rootSubPredicate = rootSubRoot.join(attrName, JoinType.LEFT).in(subquery);
+        rootSubquery.select(rootSubRoot.get(rootIdFieldName)).where(rootSubPredicate);
+        return root.get(rootIdFieldName).in(rootSubquery);
     }
 
     private static Expression<?> processExpression(
             JsonNode node,
             CriteriaBuilder cb,
             Root<?> root,
-            CriteriaQuery<?> query,
+            AbstractQuery<?> query,
             Class<?> entityClass,
             Set<Class<?>> entityClasses,
             boolean throwsIfNotExistsOrNotSearchable,
-            final Map<String, List<Field>> searchableFields,
+            Map<String, List<Field>> searchableFields,
             Map<String, Class<?>> searchableCollectionTargetClasses
     ) {
         if (!node.isArray() || node.isEmpty() || !node.get(0).isTextual()) {
@@ -317,61 +260,32 @@ public class JPASearchCore {
         var op = Operator.load(node.get(0).textValue());
         var arguments = new ArrayList<>();
         if (op.getName().equals("has")) {
-            var attrName = node.get(1).asText();
-            var subClass = searchableCollectionTargetClasses.get(attrName);
-            Subquery subquery = query.subquery(subClass);
-            Root subRoot = subquery.from(subClass);
-
-            Map<String, Class<?>> subMap = searchableCollectionTargetClasses.entrySet().stream()
-                .filter(c -> c.getKey().startsWith(attrName) && c.getKey().length() > attrName.length() + 1)
-                .map(c -> {
-                    var newKey = c.getKey().substring(attrName.length() + 1);
-                    return Map.entry(newKey, c.getValue());
-                })
-                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
-
-            var subFields = ReflectionUtils.getAllSearchableFields(Set.of(subClass));
-            var subCriteriaBuilder = cb;
-
-            var subValue = processSubValue(
-                    op,
-                    node.get(2),
-                    subCriteriaBuilder,
-                    subRoot,
-                    subquery,
-                    subClass,
-                    entityClasses, // pass through to support nested situations
+            return processHasOperator(
+                    node,
+                    cb,
+                    root,
+                    query,
+                    entityClasses,
                     throwsIfNotExistsOrNotSearchable,
-                    subFields,
-                    subMap
+                    searchableCollectionTargetClasses
             );
-
-            subquery.select(subRoot).where((Predicate) subValue);
-
-            var rootSubquery = query.subquery(root.getJavaType());
-            var rootSubRoot = rootSubquery.from(root.getJavaType());
-            var rootSubPredicate = rootSubRoot.join(attrName, JoinType.LEFT).in(subquery);
-            rootSubquery.select(rootSubRoot.get("id")).where(rootSubPredicate);
-            return root.get("id").in(rootSubquery);
-
-        } else {
-            for (var i = 1; i < node.size(); i++) {
-                var child = node.get(i);
-                arguments.add(
+        }
+        for (var i = 1; i < node.size(); i++) {
+            var child = node.get(i);
+            arguments.add(
                     processValue(
-                        op,
-                        child,
-                        cb,
-                        root,
-                        query,
-                        entityClass,
-                        entityClasses,
-                        throwsIfNotExistsOrNotSearchable,
-                        searchableFields,
-                        searchableCollectionTargetClasses
+                            op,
+                            child,
+                            cb,
+                            root,
+                            query,
+                            entityClass,
+                            entityClasses,
+                            throwsIfNotExistsOrNotSearchable,
+                            searchableFields,
+                            searchableCollectionTargetClasses
                     )
-                );
-            }
+            );
         }
         if (op.isEvaluateStrings()) {
             return op.getExprFunction().apply(cb, arguments.toArray(new Expression[0]));
