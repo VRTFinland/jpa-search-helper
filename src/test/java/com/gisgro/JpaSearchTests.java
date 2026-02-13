@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gisgro.model.Operator;
 import com.gisgro.utils.JPAFuncWithObjects;
+import java.util.function.BiConsumer;
 import lombok.SneakyThrows;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -770,14 +771,47 @@ public class JpaSearchTests {
         setup();
         var filterString = """
                 {
-                 "filter": ["has", "nestedSet", ["and", ["eq", ["field", "string"], "nestedSet0"]]]
+                 "filter": ["has", "nestedSet", ["eq", ["field", "string"], "nestedSet0"]]
                 }
                 """;
 
         List<TestEntity> result = testEntityRepository.findAll(specificationFrom(filterString, TestEntity.class, Map.of("nestedSet", TestEntity2.class)));
 
         assertThat(result).hasSize(1);
-        System.out.println(result.get(0).getNestedSet().stream().map(TestEntity2::getString).reduce((a, b) -> a + ", " + b).orElse(""));
+    }
+
+    @Test
+    public void testNestedSetEqualAndEqual() {
+        setup();
+        // This filter looks for TestEntity that has a nestedSet item with string equal to "nestedSet0" AND string equal to "nestedSet1"
+        var filterString = """
+                {
+                 "filter": ["has", "nestedSet", ["and",
+                   ["eq", ["field", "string"], "nestedSet0"],
+                   ["eq", ["field", "string"], "nestedSet1"]]]
+                }
+                """;
+
+        List<TestEntity> result = testEntityRepository.findAll(specificationFrom(filterString, TestEntity.class, Map.of("nestedSet", TestEntity2.class)));
+
+        assertThat(result).hasSize(0);
+    }
+
+    @Test
+    public void testNestedSetEqualAndNestedSetEqual() {
+        setup();
+        // This filter looks for TestEntity that has a nestedSet item with string equal to "nestedSet0" and another nestedSet item with string equal to "nestedSet1"
+        var filterString = """
+                {
+                 "filter": ["and",
+                   ["has", "nestedSet", ["eq", ["field", "string"], "nestedSet0"]],
+                   ["has", "nestedSet", ["eq", ["field", "string"], "nestedSet1"]]]
+                }
+                """;
+
+        List<TestEntity> result = testEntityRepository.findAll(specificationFrom(filterString, TestEntity.class, Map.of("nestedSet", TestEntity2.class)));
+
+        assertThat(result).hasSize(1);
     }
 
     @Test
@@ -785,15 +819,13 @@ public class JpaSearchTests {
         setup();
         var filterString = """
                 {
-                 "filter": ["has", "nestedSet", ["and", ["contains", ["field", "string"], "nested"]]]
+                 "filter": ["has", "nestedSet", ["contains", ["field", "string"], "nested"]]
                 }
                 """;
 
         List<TestEntity> result = testEntityRepository.findAll(specificationFrom(filterString, TestEntity.class, Map.of("nestedSet", TestEntity2.class)));
 
         assertThat(result).hasSize(1);
-        System.out.println("RESULTSTRINGS:"+result.get(0).getNestedSet().stream().map(TestEntity2::getString).reduce((a, b) -> a + ", " + b).orElse(""));
-        System.out.println("RESULTIDS:"+result.stream().map(e -> e.getId().toString()).reduce((a, b) -> a + ", " + b).orElse(""));
     }
 
     @Test
@@ -801,7 +833,7 @@ public class JpaSearchTests {
         setup();
         var filterString = """
                 {
-                 "filter": ["has", "nestedSet", ["and", ["isNull", ["field", "string"]]]]
+                 "filter": ["has", "nestedSet", ["isNull", ["field", "string"]]]
                 }
                 """;
 
@@ -811,7 +843,7 @@ public class JpaSearchTests {
 
         var filterString2 = """
                 {
-                 "filter": ["and", ["isNull", ["field", "string"]]]
+                 "filter": ["isNull", ["field", "string"]]
                 }
                 """;
         List<TestEntity2> result2 = testEntity2Repository.findAll(specificationFrom(filterString2, TestEntity2.class));
@@ -824,7 +856,7 @@ public class JpaSearchTests {
         setup();
         var filterString = """
                 {
-                 "filter": ["not", ["has", "nestedSet", ["and", ["isNull", ["field", "string"]]]]]
+                 "filter": ["not", ["has", "nestedSet", ["isNull", ["field", "string"]]]]
                 }
                 """;
 
@@ -838,7 +870,7 @@ public class JpaSearchTests {
         setup();
         var filterString = """
                 {
-                 "filter": ["has", "nestedSet", ["and", ["not", ["isNull", ["field", "string"]]]]]
+                 "filter": ["has", "nestedSet", ["not", ["isNull", ["field", "string"]]]]
                 }
                 """;
 
@@ -852,7 +884,8 @@ public class JpaSearchTests {
         setup5();
         var filterString = """
                 {
-                 "filter": ["has", "nestedList", ["has", "nestedSet", ["eq", ["field", "string"], "nestedSet0"]]]
+                 "filter": ["has", "nestedList",
+                   ["has", "nestedSet", ["eq", ["field", "string"], "nestedSet0"]]]
                 }
                 """;
 
@@ -864,53 +897,23 @@ public class JpaSearchTests {
     @Test
     public void testDoublyNestedSetNot() {
         setup5();
-        // Filter for TestEntity5 that has a nestedList item for which at least one nestedSet items does not contain string "nestedSet"
-        var filterString = """
+        BiConsumer<String, Integer> runTest = (searchString, expectedSize) -> {
+            String filterString = String.format("""
                 {
-                 "filter": ["has", "nestedList", ["has", "nestedSet", ["and", ["not", ["contains", ["field", "string"], "nestedSet"]]]]]
+                 "filter": ["has", "nestedList",
+                   ["has", "nestedSet", ["not", ["contains", ["field", "string"], "%s"]]]]
                 }
-                """;
+                """, searchString);
 
-        List<TestEntity5> result = testEntity5Repository.findAll(specificationFrom(filterString, TestEntity5.class, Map.of("nestedList", TestEntity.class, "nestedList.nestedSet", TestEntity2.class)));
+            List<TestEntity5> result = testEntity5Repository.findAll(
+                specificationFrom(filterString, TestEntity5.class,
+                    Map.of("nestedList", TestEntity.class, "nestedList.nestedSet", TestEntity2.class))
+            );
+            assertThat(result).hasSize(expectedSize);
+        };
 
-        assertThat(result).hasSize(0);
-
-        // Filter for TestEntity5 that has a nestedList item for which at least one nestedSet items does not contain string "nestedSet0"
-        var filterString2 = """
-                {
-                 "filter": ["has", "nestedList", ["has", "nestedSet", ["and", ["not", ["contains", ["field", "string"], "nestedSet0"]]]]]
-                }
-                """;
-
-        List<TestEntity5> result2 = testEntity5Repository.findAll(specificationFrom(filterString2, TestEntity5.class, Map.of("nestedList", TestEntity.class, "nestedList.nestedSet", TestEntity2.class)));
-
-        assertThat(result2).hasSize(1);
-    }
-
-    @Test
-    public void testDoublyNestedSetNotHamburger() {
-        setup5();
-        // Filter for TestEntity5 that has a nestedList item for which none of the nestedSet items have string equal to "nestedSet0"
-        var filterString = """
-                {
-                 "filter": ["has", "nestedList", ["not", ["has", "nestedSet", ["and", ["eq", ["field", "string"], "nestedSet0"]]]]]
-                }
-                """;
-
-        List<TestEntity5> result = testEntity5Repository.findAll(specificationFrom(filterString, TestEntity5.class, Map.of("nestedList", TestEntity.class, "nestedList.nestedSet", TestEntity2.class)));
-
-        assertThat(result).hasSize(0);
-
-        // Filter for TestEntity5 that has a nestedList item for which none of the nestedSet items have string that is null
-        var filterString2 = """
-                {
-                 "filter": ["has", "nestedList", ["not", ["has", "nestedSet", ["and", ["isNull", ["field", "string"]]]]]]
-                }
-                """;
-
-        List<TestEntity5> result2 = testEntity5Repository.findAll(specificationFrom(filterString2, TestEntity5.class, Map.of("nestedList", TestEntity.class, "nestedList.nestedSet", TestEntity2.class)));
-
-        assertThat(result2).hasSize(1);
+        runTest.accept("nestedSet", 0);
+        runTest.accept("nestedSet0", 1);
     }
 
     @Test

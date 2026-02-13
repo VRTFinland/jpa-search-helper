@@ -32,7 +32,8 @@ public class JPASearchCore {
                 filterPayload,
                 entityClass,
                 throwsIfNotExistsOrNotSearchable,
-                Collections.emptySet()
+                Collections.emptySet(),
+                Collections.emptyMap()
         );
     }
 
