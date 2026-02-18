@@ -19,7 +19,8 @@ public class ReflectionUtils {
                 new ArrayList<>(),
                 new HashMap<>(),
                 true,
-                Collections.emptySet()
+                Collections.emptySet(),
+                0
         );
     }
 
@@ -28,7 +29,8 @@ public class ReflectionUtils {
             List<Field> path,
             Map<String, List<Field>> res,
             boolean evaluateNested,
-            Set<Class<?>> visitedClasses
+            Set<Class<?>> visitedClasses,
+            int circularReferencesDepth
     ) {
         var fields = new HashSet<Field>();
 
@@ -49,30 +51,25 @@ public class ReflectionUtils {
                         newPath
                 );
             }
-            if (evaluateNested && f.isAnnotationPresent(CollectionSearchable.class)) {
+            var isCollectionSearchable = f.isAnnotationPresent(CollectionSearchable.class);
+            var isNestedSearchable = f.isAnnotationPresent(NestedSearchable.class);
+
+            if (evaluateNested && (isCollectionSearchable || isNestedSearchable)) {
                 var type = getType(f);
+                var _circularReferencesDepth = visitedClasses.contains(type) ? circularReferencesDepth - 1 : circularReferencesDepth;
+                var _evaluateNested = !entityClasses.contains(type) && _circularReferencesDepth >= 0;
                 var _visitedClasses = new HashSet<>(visitedClasses);
                 _visitedClasses.add(type);
                 getAllSearchableFields(
                     Set.of(type),
-                    new ArrayList<>(),
+                    isNestedSearchable ? newPath : new ArrayList<>(),
                     res,
-                    !entityClasses.contains(type),
-                    _visitedClasses
+                    _evaluateNested,
+                    _visitedClasses,
+                    _circularReferencesDepth
                 );
             }
-            if (evaluateNested && f.isAnnotationPresent(NestedSearchable.class)) {
-                var type = getType(f);
-                var _visitedClasses = new HashSet<>(visitedClasses);
-                _visitedClasses.add(type);
-                getAllSearchableFields(
-                        Set.of(type),
-                        newPath,
-                        res,
-                        !entityClasses.contains(type),
-                        _visitedClasses
-                );
-            }
+
         });
 
         return res;
