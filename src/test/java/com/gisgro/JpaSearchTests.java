@@ -246,21 +246,6 @@ public class JpaSearchTests {
         );
     }
 
-    @SneakyThrows
-    private <T> Specification<T> specificationFrom(
-        String filterString,
-        Class<T> clazz,
-        Map<String,Class<?>> searchableCollectionClasses
-    ) {
-        JsonNode filters = mapper.readTree(filterString);
-        return JPASearchCore.specification(
-            filters,
-            clazz,
-            true,
-            searchableCollectionClasses
-        );
-    }
-
     private <T> PageRequest pageRequestFrom(String filterString, Class<T> clazz) {
         return pageRequestFrom(filterString, clazz, Collections.emptySet());
     }
@@ -775,7 +760,7 @@ public class JpaSearchTests {
                 }
                 """;
 
-        List<TestEntity> result = testEntityRepository.findAll(specificationFrom(filterString, TestEntity.class, Map.of("nestedSet", TestEntity2.class)));
+        List<TestEntity> result = testEntityRepository.findAll(specificationFrom(filterString, TestEntity.class));
 
         assertThat(result).hasSize(1);
     }
@@ -792,7 +777,7 @@ public class JpaSearchTests {
                 }
                 """;
 
-        List<TestEntity> result = testEntityRepository.findAll(specificationFrom(filterString, TestEntity.class, Map.of("nestedSet", TestEntity2.class)));
+        List<TestEntity> result = testEntityRepository.findAll(specificationFrom(filterString, TestEntity.class));
 
         assertThat(result).hasSize(0);
     }
@@ -809,7 +794,7 @@ public class JpaSearchTests {
                 }
                 """;
 
-        List<TestEntity> result = testEntityRepository.findAll(specificationFrom(filterString, TestEntity.class, Map.of("nestedSet", TestEntity2.class)));
+        List<TestEntity> result = testEntityRepository.findAll(specificationFrom(filterString, TestEntity.class));
 
         assertThat(result).hasSize(1);
     }
@@ -823,7 +808,7 @@ public class JpaSearchTests {
                 }
                 """;
 
-        List<TestEntity> result = testEntityRepository.findAll(specificationFrom(filterString, TestEntity.class, Map.of("nestedSet", TestEntity2.class)));
+        List<TestEntity> result = testEntityRepository.findAll(specificationFrom(filterString, TestEntity.class));
 
         assertThat(result).hasSize(1);
     }
@@ -837,7 +822,7 @@ public class JpaSearchTests {
                 }
                 """;
 
-        List<TestEntity> result = testEntityRepository.findAll(specificationFrom(filterString, TestEntity.class, Map.of("nestedSet", TestEntity2.class)));
+        List<TestEntity> result = testEntityRepository.findAll(specificationFrom(filterString, TestEntity.class));
 
         assertThat(result).hasSize(0);
 
@@ -860,7 +845,7 @@ public class JpaSearchTests {
                 }
                 """;
 
-        List<TestEntity> result = testEntityRepository.findAll(specificationFrom(filterString, TestEntity.class, Map.of("nestedSet", TestEntity2.class)));
+        List<TestEntity> result = testEntityRepository.findAll(specificationFrom(filterString, TestEntity.class));
 
         assertThat(result).hasSize(1);
     }
@@ -874,7 +859,7 @@ public class JpaSearchTests {
                 }
                 """;
 
-        List<TestEntity> result = testEntityRepository.findAll(specificationFrom(filterString, TestEntity.class, Map.of("nestedSet", TestEntity2.class)));
+        List<TestEntity> result = testEntityRepository.findAll(specificationFrom(filterString, TestEntity.class));
 
         assertThat(result).hasSize(1);
     }
@@ -889,7 +874,7 @@ public class JpaSearchTests {
                 }
                 """;
 
-        List<TestEntity5> result = testEntity5Repository.findAll(specificationFrom(filterString, TestEntity5.class, Map.of("nestedList", TestEntity.class, "nestedList.nestedSet", TestEntity2.class)));
+        List<TestEntity5> result = testEntity5Repository.findAll(specificationFrom(filterString, TestEntity5.class));
 
         assertThat(result).hasSize(1);
     }
@@ -905,10 +890,7 @@ public class JpaSearchTests {
                 }
                 """, searchString);
 
-            List<TestEntity5> result = testEntity5Repository.findAll(
-                specificationFrom(filterString, TestEntity5.class,
-                    Map.of("nestedList", TestEntity.class, "nestedList.nestedSet", TestEntity2.class))
-            );
+            List<TestEntity5> result = testEntity5Repository.findAll(specificationFrom(filterString, TestEntity5.class));
             assertThat(result).hasSize(expectedSize);
         };
 
@@ -926,7 +908,7 @@ public class JpaSearchTests {
                 }
                 """;
 
-        List<TestEntity5> result = testEntity5Repository.findAll(specificationFrom(filterString, TestEntity5.class, Map.of("entity1.nestedSet", TestEntity2.class)));
+        List<TestEntity5> result = testEntity5Repository.findAll(specificationFrom(filterString, TestEntity5.class));
 
         assertThat(result).hasSize(1);
     }

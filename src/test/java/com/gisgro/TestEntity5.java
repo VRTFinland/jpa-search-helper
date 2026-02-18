@@ -1,5 +1,6 @@
 package com.gisgro;
 
+import com.gisgro.annotations.CollectionSearchable;
 import com.gisgro.annotations.NestedSearchable;
 import com.gisgro.annotations.Searchable;
 import java.util.ArrayList;
@@ -25,12 +26,11 @@ public class TestEntity5 {
   @GeneratedValue(strategy = GenerationType.IDENTITY)
   private Long id;
 
-  @Searchable
+  @CollectionSearchable(targetType = TestEntity.class)
   @OneToMany(mappedBy = "entity5")
   private List<TestEntity> nestedList = new ArrayList<>();
 
   @NestedSearchable
-  @Searchable
   @ManyToOne
   private TestEntity entity1;
 

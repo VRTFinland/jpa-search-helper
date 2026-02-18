@@ -1,13 +1,13 @@
 package com.gisgro;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.gisgro.annotations.CollectionSearchable;
 import com.gisgro.annotations.Searchable;
 import com.gisgro.exceptions.InvalidFieldException;
 import com.gisgro.exceptions.JPASearchException;
 import com.gisgro.model.Operator;
 import com.gisgro.model.SearchType;
 import com.gisgro.utils.ReflectionUtils;
-import java.util.stream.Collectors;
 import javax.persistence.Id;
 import javax.persistence.OneToMany;
 import lombok.AllArgsConstructor;
@@ -32,8 +32,7 @@ public class JPASearchCore {
                 filterPayload,
                 entityClass,
                 throwsIfNotExistsOrNotSearchable,
-                Collections.emptySet(),
-                Collections.emptyMap()
+                Collections.emptySet()
         );
     }
 
@@ -42,37 +41,6 @@ public class JPASearchCore {
             Class<T> entityClass,
             boolean throwsIfNotExistsOrNotSearchable,
             Set<Class<?>> searchableSubclasses
-    ) {
-        return specification(
-                filterPayload,
-                entityClass,
-                throwsIfNotExistsOrNotSearchable,
-                searchableSubclasses,
-                Collections.emptyMap()
-        );
-    }
-
-    public static <R, T> Specification<R> specification(
-        JsonNode filterPayload,
-        Class<T> entityClass,
-        boolean throwsIfNotExistsOrNotSearchable,
-        Map<String, Class<?>> searchableCollectionTargetClasses
-    ) {
-        return specification(
-            filterPayload,
-            entityClass,
-            throwsIfNotExistsOrNotSearchable,
-            Collections.emptySet(),
-            searchableCollectionTargetClasses
-        );
-    }
-
-    public static <R, T> Specification<R> specification(
-            JsonNode filterPayload,
-            Class<T> entityClass,
-            boolean throwsIfNotExistsOrNotSearchable,
-            Set<Class<?>> searchableSubclasses,
-            Map<String, Class<?>> searchableCollectionTargetClasses
     ) {
         HashSet<Class<?>> entityClasses = new HashSet<>(searchableSubclasses);
         entityClasses.add(entityClass);
@@ -89,8 +57,7 @@ public class JPASearchCore {
                     entityClass,
                     entityClasses,
                     throwsIfNotExistsOrNotSearchable,
-                    searchableFields,
-                    searchableCollectionTargetClasses
+                    searchableFields
             );
             if (expr instanceof Predicate) {
                 return (Predicate) expr;
@@ -109,8 +76,7 @@ public class JPASearchCore {
             Class<?> entityClass,
             Set<Class<?>> entityClasses,
             boolean throwsIfNotExistsOrNotSearchable,
-            Map<String, List<Field>> searchableFields,
-            Map<String, Class<?>> searchableCollectionTargetClasses
+            Map<String, List<Field>> searchableFields
     ) {
         if (node.isTextual()) {
             var text = node.asText();
@@ -144,8 +110,7 @@ public class JPASearchCore {
                     entityClass,
                     entityClasses,
                     throwsIfNotExistsOrNotSearchable,
-                    searchableFields,
-                    searchableCollectionTargetClasses
+                    searchableFields
             );
         } else if (node.isNull()) {
             return cb.nullLiteral(entityClass);
@@ -197,25 +162,19 @@ public class JPASearchCore {
             AbstractQuery<?> query,
             Set<Class<?>> entityClasses,
             boolean throwsIfNotExistsOrNotSearchable,
-            Map<String, List<Field>> searchableFields,
-            Map<String, Class<?>> searchableCollectionTargetClasses
+            Map<String, List<Field>> searchableFields
     ) {
         // First we need to do build the subquery for the collection items
         var attrName = node.get(1).asText();
-        var subClass = searchableCollectionTargetClasses.get(attrName);
+        var descriptor = loadDescriptor(attrName, throwsIfNotExistsOrNotSearchable, false, false, searchableFields);
+        if (descriptor == null) {
+            throw new JPASearchException("Invalid field for has operator: " + attrName);
+        }
+        var field = descriptor.fieldPath.get(descriptor.fieldPath.size() - 1);
+        var collectionSearchable = field.getAnnotation(CollectionSearchable.class);
+        var subClass = collectionSearchable.targetType();
         Subquery<?> subquery = query.subquery(subClass);
         Root<?> subRoot = subquery.from(subClass);
-
-        Map<String, Class<?>> subCollectionTargetClasses = searchableCollectionTargetClasses.entrySet().stream()
-            .filter(c -> {
-                var keyParts = c.getKey().split("\\.", 2);
-                return keyParts.length == 2 && keyParts[0].equals(attrName);
-            })
-            .map(c -> {
-                var newKey = c.getKey().split("\\.", 2)[1];
-                return Map.entry(newKey, c.getValue());
-            })
-            .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
 
         var subFields = ReflectionUtils.getAllSearchableFields(Set.of(subClass));
 
@@ -229,21 +188,15 @@ public class JPASearchCore {
                 subClass,
                 entityClasses,
                 throwsIfNotExistsOrNotSearchable,
-                subFields,
-                subCollectionTargetClasses
+                subFields
         );
 
 
         // Second we need to join the result back to root query
 
         // Join from subquery root to parent entity (not necessarily the main root, but the parent of the collection)
-        var descriptor = loadDescriptor(attrName, throwsIfNotExistsOrNotSearchable, false, false, searchableFields);
-        if (descriptor == null) {
-            throw new JPASearchException("Invalid field for has operator: " + attrName);
-        }
-        var field = descriptor.fieldPath.get(descriptor.fieldPath.size() - 1);
         var oneToMany = field.getAnnotation(OneToMany.class);
-        var backRefFieldName = oneToMany.mappedBy();
+        var backRefFieldName = collectionSearchable.mappedBy().isEmpty() ? oneToMany.mappedBy() : collectionSearchable.mappedBy();
         var join = subRoot.join(backRefFieldName, JoinType.INNER);
 
         // Handle possible nested path to get to parent entity from main root
@@ -271,8 +224,7 @@ public class JPASearchCore {
             Class<?> entityClass,
             Set<Class<?>> entityClasses,
             boolean throwsIfNotExistsOrNotSearchable,
-            Map<String, List<Field>> searchableFields,
-            Map<String, Class<?>> searchableCollectionTargetClasses
+            Map<String, List<Field>> searchableFields
     ) {
         if (!node.isArray() || node.isEmpty() || !node.get(0).isTextual()) {
             throw new JPASearchException("Invalid expression");
@@ -288,8 +240,7 @@ public class JPASearchCore {
                     query,
                     entityClasses,
                     throwsIfNotExistsOrNotSearchable,
-                    searchableFields,
-                    searchableCollectionTargetClasses
+                    searchableFields
             );
         }
         for (var i = 1; i < node.size(); i++) {
@@ -304,8 +255,7 @@ public class JPASearchCore {
                             entityClass,
                             entityClasses,
                             throwsIfNotExistsOrNotSearchable,
-                            searchableFields,
-                            searchableCollectionTargetClasses
+                            searchableFields
                     )
             );
         }
@@ -448,7 +398,12 @@ public class JPASearchCore {
         var searchable = field.getAnnotation(Searchable.class);
 
         if (searchable == null) {
-            return null;
+            var collectionSearchable = field.getAnnotation(CollectionSearchable.class);
+            if (collectionSearchable == null) {
+                return null;
+            } else {
+                return new Descriptor(SearchType.UNTYPED, path);
+            }
         }
 
         if (checkSortable && !searchable.sortable()) {

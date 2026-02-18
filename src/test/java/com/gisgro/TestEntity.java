@@ -1,5 +1,6 @@
 package com.gisgro;
 
+import com.gisgro.annotations.CollectionSearchable;
 import com.gisgro.annotations.NestedSearchable;
 import com.gisgro.annotations.Searchable;
 import com.gisgro.model.SearchType;
@@ -100,7 +101,7 @@ public class TestEntity {
     @JoinColumn
     private TestEntity2 nested;
 
-    @Searchable
+    @CollectionSearchable(targetType = TestEntity2.class, mappedBy = "entity1")
     @OneToMany(mappedBy = "entity1")
     private Set<TestEntity2> nestedSet;
 

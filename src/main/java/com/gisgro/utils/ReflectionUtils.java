@@ -1,5 +1,6 @@
 package com.gisgro.utils;
 
+import com.gisgro.annotations.CollectionSearchable;
 import com.gisgro.annotations.NestedSearchable;
 import com.gisgro.annotations.Searchable;
 import com.gisgro.exceptions.JPASearchException;
@@ -17,7 +18,8 @@ public class ReflectionUtils {
                 entityClasses,
                 new ArrayList<>(),
                 new HashMap<>(),
-                true
+                true,
+                Collections.emptySet()
         );
     }
 
@@ -25,7 +27,8 @@ public class ReflectionUtils {
             Set<Class<?>> entityClasses,
             List<Field> path,
             Map<String, List<Field>> res,
-            boolean evaluateNested
+            boolean evaluateNested,
+            Set<Class<?>> visitedClasses
     ) {
         var fields = new HashSet<Field>();
 
@@ -37,7 +40,7 @@ public class ReflectionUtils {
             var newPath = new ArrayList<>(path);
             newPath.add(f);
 
-            if (f.isAnnotationPresent(Searchable.class)) {
+            if (f.isAnnotationPresent(Searchable.class) || f.isAnnotationPresent(CollectionSearchable.class)) {
                 res.putIfAbsent(
                         newPath
                                 .stream()
@@ -46,13 +49,28 @@ public class ReflectionUtils {
                         newPath
                 );
             }
+            if (evaluateNested && f.isAnnotationPresent(CollectionSearchable.class)) {
+                var type = getType(f);
+                var _visitedClasses = new HashSet<>(visitedClasses);
+                _visitedClasses.add(type);
+                getAllSearchableFields(
+                    Set.of(type),
+                    new ArrayList<>(),
+                    res,
+                    !entityClasses.contains(type),
+                    _visitedClasses
+                );
+            }
             if (evaluateNested && f.isAnnotationPresent(NestedSearchable.class)) {
                 var type = getType(f);
+                var _visitedClasses = new HashSet<>(visitedClasses);
+                _visitedClasses.add(type);
                 getAllSearchableFields(
                         Set.of(type),
                         newPath,
                         res,
-                        !entityClasses.contains(type)
+                        !entityClasses.contains(type),
+                        _visitedClasses
                 );
             }
         });
