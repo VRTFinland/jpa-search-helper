@@ -783,6 +783,39 @@ public class JpaSearchTests {
     }
 
     @Test
+    public void testNestedSetEqualAndEqual2() {
+        setup5();
+        // This filter looks for TestEntity that has a nestedSet item with string equal to "nestedSet0" AND string equal to "nestedSet1"
+        var filterString = """
+                {
+                 "filter": ["has", "nestedList", ["and",
+                   ["eq", ["field", "email"], "test@test.fi"],
+                   ["eq", ["field", "dateString"], "20240609"]]]
+                }
+                """;
+
+        List<TestEntity5> result = testEntity5Repository.findAll(specificationFrom(filterString, TestEntity5.class));
+
+        assertThat(result).hasSize(1);
+    }
+
+    @Test
+    public void testNestedSetEqualOrEqual() {
+        setup5();
+        // This filter looks for TestEntity that has a nestedSet item with string equal to "nestedSet0" AND string equal to "nestedSet1"
+        var filterString = """
+                {
+                 "filter": ["has", "nestedList", ["or",
+                   ["eq", ["field", "email"], "t@t.fi"],
+                   ["eq", ["field", "dateString"], "20240609"]]]
+                }
+                """;
+
+        List<TestEntity5> result = testEntity5Repository.findAll(specificationFrom(filterString, TestEntity5.class));
+
+        assertThat(result).hasSize(1);
+    }
+    @Test
     public void testNestedSetEqualAndNestedSetEqual() {
         setup();
         // This filter looks for TestEntity that has a nestedSet item with string equal to "nestedSet0" and another nestedSet item with string equal to "nestedSet1"

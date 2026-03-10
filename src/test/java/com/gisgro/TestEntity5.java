@@ -2,7 +2,6 @@ package com.gisgro;
 
 import com.gisgro.annotations.CollectionSearchable;
 import com.gisgro.annotations.NestedSearchable;
-import com.gisgro.annotations.Searchable;
 import java.util.ArrayList;
 import java.util.List;
 import javax.persistence.Entity;
