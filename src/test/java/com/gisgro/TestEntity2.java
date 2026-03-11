@@ -1,6 +1,7 @@
 package com.gisgro;
 
 import com.gisgro.annotations.Searchable;
+import javax.persistence.ManyToOne;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.Setter;
@@ -25,4 +26,13 @@ public class TestEntity2 {
 
     @Searchable
     private String string;
+
+    @ManyToOne
+    private TestEntity entity1;
+
+    public TestEntity2(Long id, String string) {
+        this.id = id;
+        this.string = string;
+        this.entity1 = null;
+    }
 }
