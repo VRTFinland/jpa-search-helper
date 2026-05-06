@@ -60,9 +60,17 @@ public class ReflectionUtils {
                 var _evaluateNested = !entityClasses.contains(type) && _circularReferencesDepth >= 0;
                 var _visitedClasses = new HashSet<>(visitedClasses);
                 _visitedClasses.add(type);
+                
+                // For @NestedSearchable: accumulate path (e.g., parent.child.id)
+                // For @CollectionSearchable: prepend collection field name to create namespace
+                //   (e.g., items.id instead of just id, preventing collision with parent.id)
+                List<Field> pathForRecursion = isNestedSearchable 
+                    ? newPath 
+                    : createCollectionPath(path, f);
+                
                 getAllSearchableFields(
                     Set.of(type),
-                    isNestedSearchable ? newPath : new ArrayList<>(),
+                    pathForRecursion,
                     res,
                     _evaluateNested,
                     _visitedClasses,
@@ -97,5 +105,22 @@ public class ReflectionUtils {
         }
 
         return type;
+    }
+
+    /**
+     * Creates a path for @CollectionSearchable by including the collection field name.
+     * This prevents field shadowing by ensuring collection element fields are namespaced.
+     * 
+     * Example: For a field "berthCalls" with element id, instead of registering "id",
+     * we register "berthCalls.id", which doesn't collide with "id" from other entities.
+     * 
+     * @param path Current path (parent fields)
+     * @param collectionField The @CollectionSearchable field itself
+     * @return New path that includes the collection field name
+     */
+    private static List<Field> createCollectionPath(List<Field> path, Field collectionField) {
+        var collectionPath = new ArrayList<>(path);
+        collectionPath.add(collectionField);
+        return collectionPath;
     }
 }

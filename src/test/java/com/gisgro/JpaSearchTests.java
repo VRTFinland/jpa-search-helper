@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gisgro.model.Operator;
 import com.gisgro.utils.JPAFuncWithObjects;
+import com.gisgro.utils.ReflectionUtils;
 import java.util.function.BiConsumer;
 import lombok.SneakyThrows;
 import org.junit.jupiter.api.Test;
@@ -944,5 +945,256 @@ public class JpaSearchTests {
         List<TestEntity5> result = testEntity5Repository.findAll(specificationFrom(filterString, TestEntity5.class));
 
         assertThat(result).hasSize(1);
+    }
+
+    /**
+     * REGRESSION TEST FOR FIELD SHADOWING BUG
+     *
+     * Tests that @NestedSearchable and @CollectionSearchable fields don't collide.
+     * Ensures collection element fields are namespaced (e.g., "nestedSet.id" instead of "id").
+     */
+    @Test
+    public void testFieldsAreNotShadowedByCollectionElements() {
+        // Setup: TestEntity has both @NestedSearchable nested and @CollectionSearchable nestedSet
+        // Both point to TestEntity2 which has an "id" field
+        var fieldMap = ReflectionUtils.getAllSearchableFields(Set.of(TestEntity.class));
+
+        // Core assertion: "id" should resolve to TestEntity.id, not TestEntity2.id
+        assertThat(fieldMap)
+            .as("Field map should contain top-level id")
+            .containsKey("id");
+
+        var topLevelIdPath = fieldMap.get("id");
+        assertThat(topLevelIdPath)
+            .as("id should resolve to TestEntity.id")
+            .isNotEmpty();
+        assertThat(topLevelIdPath.get(topLevelIdPath.size() - 1).getDeclaringClass())
+            .as("Top-level id should come from TestEntity, not TestEntity2")
+            .isEqualTo(TestEntity.class);
+    }
+
+    /**
+     * REGRESSION TEST FOR FIELD SHADOWING BUG
+     *
+     * Tests that nested fields and collection fields are registered with unique paths.
+     * Collection elements should be namespaced with their collection field name.
+     */
+    @Test
+    public void testNestedAndCollectionFieldsHaveUniquePaths() {
+        var fieldMap = ReflectionUtils.getAllSearchableFields(Set.of(TestEntity.class));
+
+        // Verify nested fields are registered correctly
+        assertThat(fieldMap)
+            .as("Field map should have nested.id from @NestedSearchable")
+            .containsKey("nested.id");
+
+        // Verify collection fields are namespaced with collection field name
+        assertThat(fieldMap)
+            .as("Field map should have nestedSet.id from @CollectionSearchable with field name prefix")
+            .containsKey("nestedSet.id");
+
+        // Verify they're different entries
+        var nestedIdPath = fieldMap.get("nested.id");
+        var nestedSetIdPath = fieldMap.get("nestedSet.id");
+
+        assertThat(nestedIdPath)
+            .as("nested.id path should exist")
+            .isNotNull();
+        assertThat(nestedSetIdPath)
+            .as("nestedSet.id path should exist")
+            .isNotNull();
+
+        // Both should reference TestEntity2.id but via different paths
+        assertThat(nestedIdPath.get(nestedIdPath.size() - 1).getDeclaringClass())
+            .as("nested.id should reference TestEntity2")
+            .isEqualTo(TestEntity2.class);
+        assertThat(nestedSetIdPath.get(nestedSetIdPath.size() - 1).getDeclaringClass())
+            .as("nestedSet.id should reference TestEntity2")
+            .isEqualTo(TestEntity2.class);
+    }
+
+    /**
+     * REGRESSION TEST FOR FIELD SHADOWING BUG
+     *
+     * Tests that field registration is deterministic across multiple runs.
+     * Ensures HashSet iteration randomness doesn't affect field path resolution.
+     */
+    @Test
+    public void testFieldRegistrationIsDeterministic() {
+        // Run field discovery multiple times and verify consistency
+        Map<String, Class<?>> baselineResults = new HashMap<>();
+
+        for (int i = 0; i < 5; i++) {
+            var fieldMap = ReflectionUtils.getAllSearchableFields(Set.of(TestEntity.class));
+
+            // Check that id always resolves to TestEntity (not TestEntity2)
+            var idPath = fieldMap.get("id");
+            assertThat(idPath)
+                .as("Run " + i + ": id field should exist")
+                .isNotNull();
+
+            var idDeclaringClass = idPath.get(idPath.size() - 1).getDeclaringClass();
+
+            if (i == 0) {
+                baselineResults.put("id", idDeclaringClass);
+            } else {
+                assertThat(idDeclaringClass)
+                    .as("Run " + i + ": id should consistently resolve to " + baselineResults.get("id"))
+                    .isEqualTo(baselineResults.get("id"));
+            }
+        }
+
+        // Verify all runs resolved id to TestEntity
+        assertThat(baselineResults.get("id"))
+            .as("All runs should resolve id to TestEntity")
+            .isEqualTo(TestEntity.class);
+    }
+
+    /**
+     * REGRESSION TEST FOR FIELD SHADOWING BUG
+     *
+     * Tests that queries can resolve fields correctly after the fix.
+     * Ensures loadDescriptor works with both nested and collection field paths.
+     */
+    @Test
+    public void testLoadDescriptorResolvesFieldsCorrectly() {
+        var fieldMap = ReflectionUtils.getAllSearchableFields(Set.of(TestEntity.class));
+
+        // Test: top-level field lookup
+        var idDescriptor = JPASearchCore.loadDescriptor("id", true, false, false, fieldMap);
+        assertThat(idDescriptor)
+            .as("Should find top-level id field")
+            .isNotNull();
+        if (idDescriptor != null) {
+            assertThat(idDescriptor.getFieldPath().get(0).getDeclaringClass())
+                .as("id should resolve to TestEntity")
+                .isEqualTo(TestEntity.class);
+        }
+
+        // Test: nested field lookup
+        var nestedIdDescriptor = JPASearchCore.loadDescriptor("nested.id", true, false, false, fieldMap);
+        assertThat(nestedIdDescriptor)
+            .as("Should find nested.id field")
+            .isNotNull();
+        if (nestedIdDescriptor != null) {
+            assertThat(nestedIdDescriptor.getFieldPath().get(nestedIdDescriptor.getFieldPath().size() - 1).getDeclaringClass())
+                .as("nested.id should resolve to TestEntity2")
+                .isEqualTo(TestEntity2.class);
+        }
+
+        // Test: collection field lookup
+        var collectionIdDescriptor = JPASearchCore.loadDescriptor("nestedSet.id", true, false, false, fieldMap);
+        assertThat(collectionIdDescriptor)
+            .as("Should find nestedSet.id field")
+            .isNotNull();
+        if (collectionIdDescriptor != null) {
+            assertThat(collectionIdDescriptor.getFieldPath().get(collectionIdDescriptor.getFieldPath().size() - 1).getDeclaringClass())
+                .as("nestedSet.id should resolve to TestEntity2")
+                .isEqualTo(TestEntity2.class);
+        }
+    }
+
+    /**
+     * REGRESSION TEST FOR FIELD SHADOWING BUG
+     *
+     * Tests that searches using collection fields work correctly.
+     * This specifically targets the scenario from PR #14683.
+     */
+    @Test
+    @SneakyThrows
+    public void testSearchingByIdOnEntityWithCollectionDoesNotShadow() {
+        // This test verifies the fix for PR #14683
+        // When @CollectionSearchable is added to an entity with nested relationships,
+        // searching for "id" on the parent entity should not be shadowed by child entity ids
+
+        var setup = setup();  // Sets up TestEntity with nestedSet
+
+        // Search for top-level entity by id
+        var jsonFilter = """
+                {
+                 "filter": ["eq", ["field", "id"], %d],
+                 "options": {"pageOffset": 0, "pageSize": 10}
+                }
+                """.formatted(setup.getId());
+        Specification<TestEntity> spec = specificationFrom(jsonFilter, TestEntity.class);
+
+        var results = testEntityRepository.findAll(spec);
+
+        // Should find exactly the setup entity by its id (not shadowed by nested entities)
+        assertThat(results)
+            .as("Search for top-level TestEntity.id should find exactly one result (not shadowed)")
+            .hasSize(1);
+    }
+
+    /**
+     * REGRESSION TEST FOR FIELD SHADOWING BUG
+     *
+     * Tests that both nested and collection searches work independently.
+     * Ensures separation of concerns between nested and collection field paths.
+     */
+    @Test
+    @SneakyThrows
+    public void testBothNestedAndCollectionFieldsAreSearchable() {
+        var setup = setup();
+
+        // Verify setup has both nested and collection entities
+        assertThat(setup.getNested()).isNotNull();
+        assertThat(setup.getNestedSet()).isNotEmpty();
+
+        // Search via nested field (should use dot notation)
+        var nestedJson = """
+                {
+                 "filter": ["eq", ["field", "nested.string"], "Nested! daa dumdidum"],
+                 "options": {"pageOffset": 0, "pageSize": 10}
+                }
+                """;
+        Specification<TestEntity> nestedSpec = specificationFrom(nestedJson, TestEntity.class);
+
+        var nestedResults = testEntityRepository.findAll(nestedSpec);
+        assertThat(nestedResults)
+            .as("Search by nested field should find the entity")
+            .hasSize(1);
+
+        // Search via collection field
+        // Note: This uses the "has" operator which is specific to @CollectionSearchable
+        var collectionJson = """
+                {
+                 "filter": ["has", "nestedSet", ["contains", ["field", "string"], "nestedSet"]],
+                 "options": {"pageOffset": 0, "pageSize": 10}
+                }
+                """;
+        Specification<TestEntity> collectionSpec = specificationFrom(collectionJson, TestEntity.class);
+
+        var collectionResults = testEntityRepository.findAll(collectionSpec);
+        assertThat(collectionResults)
+            .as("Search by collection field should find the entity")
+            .hasSize(1);
+    }
+
+    /**
+     * REGRESSION TEST FOR FIELD SHADOWING BUG
+     *
+     * Tests that searching by id on an entity with @CollectionSearchable fields
+     * does not shadow the parent entity's id with child entity ids.
+     * Uses the declarative filter syntax like testSimple and testNested tests.
+     */
+    @Test
+    public void testIdFieldNotShadowedByCollectionSearchable() {
+        var setup = setup();  // Sets up TestEntity with nestedSet
+        
+        var filterString = """
+                {
+                 "filter": ["eq", ["field", "id"], %d]
+                }
+                """.formatted(setup.getId());
+
+        List<TestEntity> result = testEntityRepository.findAll(specificationFrom(filterString, TestEntity.class));
+
+        assertThat(result)
+            .as("Search for top-level TestEntity.id should find exactly one result (not shadowed by TestEntity2.id from nestedSet)")
+            .hasSize(1);
+        assertThat(result.get(0).getId())
+            .as("Result should be the entity we searched for")
+            .isEqualTo(setup.getId());
     }
 }

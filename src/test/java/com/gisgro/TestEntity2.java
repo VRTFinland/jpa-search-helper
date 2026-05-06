@@ -21,6 +21,7 @@ public class TestEntity2 {
     }
 
     @Id
+    @Searchable
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
