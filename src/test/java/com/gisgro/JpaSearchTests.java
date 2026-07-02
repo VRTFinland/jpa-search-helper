@@ -945,4 +945,48 @@ public class JpaSearchTests {
 
         assertThat(result).hasSize(1);
     }
+
+    /**
+     * Test that lower() operator on non-String fields (e.g., Boolean, Long) doesn't cause errors.
+     * In Hibernate 6, lower() strictly validates its argument type, so lower() on a Boolean
+     * would cause: "Parameter 1 of function 'lower()' has type 'STRING', but argument is
+     * of type 'java.lang.Boolean' mapped to 'BOOLEAN'".
+     * The fix is to make lower() pass through non-String expressions unchanged.
+     */
+    @Test
+    public void testLowerOnBooleanFieldShouldNotFail() {
+        setup();
+
+        // Using lower() on a Boolean field should work by passing through the value unchanged
+        var filterString = """
+                {
+                 "filter": ["eq", ["lower", ["field", "wrapperBoolean"]], true]
+                }
+                """;
+
+        List<TestEntity> result = testEntityRepository.findAll(specificationFrom(filterString, TestEntity.class));
+
+        // The setup creates an entity with wrapperBoolean=true, so it should be found
+        assertThat(result).hasSize(1);
+    }
+
+    /**
+     * Test that lower() operator on Long fields doesn't cause errors.
+     */
+    @Test
+    public void testLowerOnLongFieldShouldNotFail() {
+        setup();
+
+        // Using lower() on a Long field should work by passing through the value unchanged
+        var filterString = """
+                {
+                 "filter": ["eq", ["lower", ["field", "wrapperLong"]], 10]
+                }
+                """;
+
+        List<TestEntity> result = testEntityRepository.findAll(specificationFrom(filterString, TestEntity.class));
+
+        // The setup creates an entity with wrapperLong=10L, so it should be found
+        assertThat(result).hasSize(1);
+    }
 }

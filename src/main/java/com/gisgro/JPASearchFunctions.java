@@ -48,7 +48,16 @@ public class JPASearchFunctions {
             = (cb, values) -> cb.isEmpty(values[0]);
     public static final JPAFuncWithExpressions<Comparable, Boolean> BETWEEN = (cb, values) -> cb.between(values[0], values[1], values[2]);
 
-    public static final JPAFuncWithExpressions<String, String> LOWER = (cb, values) -> cb.lower(values[0]);
+    @SuppressWarnings("unchecked")
+    public static final JPAFuncWithExpressions<Object, Object> LOWER = (cb, values) -> {
+        Expression<Object> expr = values[0];
+        // Only apply lower() to String expressions; pass through other types unchanged
+        // Hibernate 6 strictly validates lower() argument types
+        if (expr.getJavaType() == String.class) {
+            return (Expression<Object>) (Expression<?>) cb.lower(expr.as(String.class));
+        }
+        return expr;
+    };
 
     public static final JPAFuncWithObjects<Date> DATE = (root, query, cb, values, entityClass) -> {
         var dateStr = ZonedDateTime.parse((String) values[0]).withZoneSameInstant(ZoneOffset.UTC).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME);
