@@ -9,6 +9,7 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.ManyToOne;
 
 @Entity
 @Getter
@@ -25,4 +26,13 @@ public class TestEntity2 {
 
     @Searchable
     private String string;
+
+    @ManyToOne
+    private TestEntity entity1;
+
+    public TestEntity2(Long id, String string) {
+        this.id = id;
+        this.string = string;
+        this.entity1 = null;
+    }
 }

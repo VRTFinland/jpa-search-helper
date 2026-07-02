@@ -1,12 +1,15 @@
 package com.gisgro;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.gisgro.annotations.CollectionSearchable;
 import com.gisgro.annotations.Searchable;
 import com.gisgro.exceptions.InvalidFieldException;
 import com.gisgro.exceptions.JPASearchException;
 import com.gisgro.model.Operator;
 import com.gisgro.model.SearchType;
 import com.gisgro.utils.ReflectionUtils;
+import jakarta.persistence.Id;
+import jakarta.persistence.OneToMany;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import org.springframework.data.domain.PageRequest;
@@ -69,7 +72,7 @@ public class JPASearchCore {
             JsonNode node,
             CriteriaBuilder cb,
             Root<?> root,
-            CriteriaQuery<?> query,
+            AbstractQuery<?> query,
             Class<?> entityClass,
             Set<Class<?>> entityClasses,
             boolean throwsIfNotExistsOrNotSearchable,
@@ -145,11 +148,81 @@ public class JPASearchCore {
         return path;
     }
 
+    /**
+     * Processes the "has" operator, which checks for the existence of related entities in a collection.
+     * This operator needs to create a subquery to check for the existence of related entities that match the specified criteria.
+     * Basic Operator handling is not sufficient for this operator, as it requires a more complex query structure involving joins and subqueries.
+     */
+    private static Expression<?> processHasOperator(
+            JsonNode node,
+            CriteriaBuilder cb,
+            Root<?> root,
+            AbstractQuery<?> query,
+            Set<Class<?>> entityClasses,
+            boolean throwsIfNotExistsOrNotSearchable,
+            Map<String, List<Field>> searchableFields
+    ) {
+        // First we need to do build the subquery for the collection items
+        var attrName = node.get(1).asText();
+        var descriptor = loadDescriptor(attrName, throwsIfNotExistsOrNotSearchable, false, false, searchableFields);
+        if (descriptor == null) {
+            throw new JPASearchException("Invalid field for has operator: " + attrName);
+        }
+        var field = descriptor.fieldPath.get(descriptor.fieldPath.size() - 1);
+        var collectionSearchable = field.getAnnotation(CollectionSearchable.class);
+        var subClass = collectionSearchable.targetType();
+
+        // Resolve the path to the parent entity that owns the collection (this is the main
+        // root, unless the collection is reached through a nested path) and its id field.
+        var parentPath = descriptor.fieldPath.size() > 1 ? descriptor.fieldPath.subList(0, descriptor.fieldPath.size() - 1) : null;
+        var rootParentDescriptor = parentPath != null ? new JPASearchCore.Descriptor(descriptor.searchType, parentPath) : null;
+        var rootParentExpr = rootParentDescriptor != null ? getPath(cb, root, rootParentDescriptor) : root;
+        var parentClass = rootParentExpr.getJavaType();
+        var parentIdField = Arrays.stream(parentClass.getDeclaredFields())
+            .filter(f -> f.isAnnotationPresent(Id.class))
+            .findFirst()
+            .orElseThrow(() -> new JPASearchException("Cannot find id field for class " + parentClass.getName()));
+        var parentIdFieldName = parentIdField.getName();
+
+        // The subquery selects the parent id, so it must be declared with the id's type: the
+        // IN comparison below is resolved from the subquery's declared type, not its select.
+        Subquery<?> subquery = query.subquery(parentIdField.getType());
+        Root<?> subRoot = subquery.from(subClass);
+
+        var subFields = ReflectionUtils.getAllSearchableFields(Set.of(subClass));
+
+        var op = Operator.load(node.get(0).textValue());
+        var subValue = processValue(
+                op,
+                node.get(2),
+                cb,
+                subRoot,
+                subquery,
+                subClass,
+                entityClasses,
+                throwsIfNotExistsOrNotSearchable,
+                subFields
+        );
+
+
+        // Second we need to join the result back to root query
+
+        // Join from subquery root to parent entity (not necessarily the main root, but the parent of the collection)
+        var oneToMany = field.getAnnotation(OneToMany.class);
+        var backRefFieldName = collectionSearchable.mappedBy().isEmpty() ? oneToMany.mappedBy() : collectionSearchable.mappedBy();
+        var join = subRoot.join(backRefFieldName, JoinType.INNER);
+
+        subquery.select(join.get(parentIdFieldName)).where((Predicate) subValue);
+        // Compare parent id to parent id: rootParentExpr is the parent entity, so the IN
+        // must be built on its id, matching the id selected by the subquery.
+        return ((Path<?>) rootParentExpr).get(parentIdFieldName).in(subquery);
+    }
+
     private static Expression<?> processExpression(
             JsonNode node,
             CriteriaBuilder cb,
             Root<?> root,
-            CriteriaQuery<?> query,
+            AbstractQuery<?> query,
             Class<?> entityClass,
             Set<Class<?>> entityClasses,
             boolean throwsIfNotExistsOrNotSearchable,
@@ -161,7 +234,17 @@ public class JPASearchCore {
 
         var op = Operator.load(node.get(0).textValue());
         var arguments = new ArrayList<>();
-
+        if (op.getName().equals("has")) {
+            return processHasOperator(
+                    node,
+                    cb,
+                    root,
+                    query,
+                    entityClasses,
+                    throwsIfNotExistsOrNotSearchable,
+                    searchableFields
+            );
+        }
         for (var i = 1; i < node.size(); i++) {
             var child = node.get(i);
             arguments.add(
@@ -317,7 +400,12 @@ public class JPASearchCore {
         var searchable = field.getAnnotation(Searchable.class);
 
         if (searchable == null) {
-            return null;
+            var collectionSearchable = field.getAnnotation(CollectionSearchable.class);
+            if (collectionSearchable == null) {
+                return null;
+            } else {
+                return new Descriptor(SearchType.UNTYPED, path);
+            }
         }
 
         if (checkSortable && !searchable.sortable()) {

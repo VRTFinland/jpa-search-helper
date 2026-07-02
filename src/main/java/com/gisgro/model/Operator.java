@@ -53,7 +53,8 @@ public class Operator {
                 new Operator("bigDecimal", JPASearchFunctions.BIG_DECIMAL),
                 new Operator("period", JPASearchFunctions.PERIOD),
                 new Operator("isNull", JPASearchFunctions.NULL),
-                new Operator("isEmpty", JPASearchFunctions.EMPTY)
+                new Operator("isEmpty", JPASearchFunctions.EMPTY),
+                new Operator("has", JPASearchFunctions.HAS)
         };
         for (Operator operator : operatorArray) {
             operators.put(operator.getName(), operator);
