@@ -12,7 +12,7 @@ plugins {
 }
 
 group = "com.gisgro"
-version = "3.0.0-alpha3"
+version = "3.0.0-alpha4"
 
 java.apply {
     sourceCompatibility = JavaVersion.VERSION_17

@@ -51,10 +51,16 @@ public class ReflectionUtils {
                         newPath
                 );
             }
-            var isCollectionSearchable = f.isAnnotationPresent(CollectionSearchable.class);
             var isNestedSearchable = f.isAnnotationPresent(NestedSearchable.class);
 
-            if (evaluateNested && (isCollectionSearchable || isNestedSearchable)) {
+            // Only descend into @NestedSearchable associations for the flat field map. A
+            // @CollectionSearchable field is itself registered above (for the "has" operator), but we
+            // must NOT descend into its element type here: the "has" operator resolves the element's
+            // fields from its own field map (see processHasOperator), and descending would register the
+            // element's fields under unprefixed, colliding keys (e.g. a collection element's "id"
+            // shadowing the root's "id"), which makes a plain field search emit an invalid
+            // treat(root as elementType) and blow up in Hibernate 6.
+            if (evaluateNested && isNestedSearchable) {
                 var type = getType(f);
                 var _circularReferencesDepth = visitedClasses.contains(type) ? circularReferencesDepth - 1 : circularReferencesDepth;
                 var _evaluateNested = !entityClasses.contains(type) && _circularReferencesDepth >= 0;
@@ -62,7 +68,7 @@ public class ReflectionUtils {
                 _visitedClasses.add(type);
                 getAllSearchableFields(
                     Set.of(type),
-                    isNestedSearchable ? newPath : new ArrayList<>(),
+                    newPath,
                     res,
                     _evaluateNested,
                     _visitedClasses,

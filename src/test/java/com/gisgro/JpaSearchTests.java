@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gisgro.model.Operator;
 import com.gisgro.utils.JPAFuncWithObjects;
+import com.gisgro.utils.ReflectionUtils;
 import java.util.function.BiConsumer;
 import lombok.SneakyThrows;
 import org.junit.jupiter.api.Test;
@@ -281,6 +282,20 @@ public class JpaSearchTests {
 
         List<TestEntity3> result = testEntity3Repository.findAll(specificationFrom(filterString, TestEntity3.class));
         assertThat(result).hasSize(1);
+    }
+
+    @Test
+    public void collectionElementFieldsDoNotLeakIntoRootFieldMap() {
+        // Regression: a @CollectionSearchable element's @Searchable fields must not be registered as
+        // bare top-level keys. TestEntity2.string is searchable via the nested path ("nested.string")
+        // or the "nestedSet" collection (the "has" operator), but must NOT leak as a bare "string" on
+        // TestEntity. Such leaks collided with real root fields (e.g. a collection element's "id"
+        // shadowing the root's "id") and made a plain field search emit an invalid
+        // treat(root as elementType), which throws in Hibernate 6.
+        var fields = ReflectionUtils.getAllSearchableFields(Set.of(TestEntity.class));
+        assertThat(fields).containsKey("nestedSet");     // the collection field itself stays searchable
+        assertThat(fields).containsKey("nested.string"); // nested (non-collection) fields stay prefixed
+        assertThat(fields).doesNotContainKey("string");  // collection-element field must not leak bare
     }
 
     @Test
